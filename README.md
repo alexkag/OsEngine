@@ -9,7 +9,7 @@
 
 This is a full range of programs required to automate trading on the stock exchange.
 
-![algotasks](https://github.com/AlexWan/OsEngine/assets/26077466/0590b1e3-ecf2-4027-a3ac-4967916f0289)
+![algotasks](https://github.com/user-attachments/assets/864c5e84-93f6-4b24-a9b3-0eeeb41d0df5)
 
 It includes:
 
@@ -20,8 +20,6 @@ The layer for creating robots is similar to the Wealth-Lab script and Ninja Scri
 *Optimizer* - the program to select the optimal parameters for the strategy.
 
 *Tester* - exchange emulator. The program for testing on the history of many strategies at the same time, with a single portfolio. Supports translation of multiple timeframes and multiple instruments at the same time.
-
-*Miner* - the program to search for profitable formations on the chart. Both manual and automatic. Work with Bigdata on your computer. Patterns found with the help of this program can be launched into trading.
 
 *Bot station* -the program to run the robots in the trade.
 
@@ -111,7 +109,7 @@ By downloading Os Engine, you agree that if a critical error occurs, information
 
 [FAQ. Огромный гайд по работе с проектом из более чем 170 постов](https://o-s-a.net/os-engine-faq)
 
-![default](https://user-images.githubusercontent.com/26077466/243121761-25fe883f-d567-4ed0-bdd6-7f28c7ff667b.jpg)
+![default](https://github.com/user-attachments/assets/864c5e84-93f6-4b24-a9b3-0eeeb41d0df5)
 
 В него входят:
 
@@ -122,8 +120,6 @@ By downloading Os Engine, you agree that if a critical error occurs, information
 *Optimizer* - программа для подбора оптимальных параметров для стратегии.
 
 *Tester* - эмулятор биржи. Программа для тестирования на истории множества стратегий одновременно, с единым портфелем.  Поддерживает трансляцию нескольких таймфреймов и нескольких инструментов одновременно.
-
-*Miner* - программа для поиска прибыльных формаций на графике. Как в ручном, так и в автоматическом режиме. Работа с БигДатой у Вас на компьютере. Паттерны найденные при помощи этой программы можно запускать в торговлю.
 
 *Bot station* - программа для запуска роботов в торговлю.
 
@@ -197,7 +193,7 @@ By downloading Os Engine, you agree that if a critical error occurs, information
 
 3) арбитражные стратегии для торговли расхождения коррелирующих инструментов, в том числе одноногие арбитражи.
 
-FAQ: https://o-s-a.net/os-engine-faq
+ГАЙД: https://smart-lab.ru/company/os_engine/blog/1024149.php
 
 Телеграмм группа поддержки: https://t.me/osengine_official_support
 
