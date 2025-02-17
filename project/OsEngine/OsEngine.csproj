@@ -1023,29 +1023,6 @@
     <Compile Include="OsData\OsDataUi.xaml.cs">
       <DependentUpon>OsDataUi.xaml</DependentUpon>
     </Compile>
-    <Compile Include="OsMiner\OsMinerMaster.cs" />
-    <Compile Include="OsMiner\OsMinerSet.cs" />
-    <Compile Include="OsMiner\OsMinerSetUi.xaml.cs">
-      <DependentUpon>OsMinerSetUi.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="OsMiner\OsMinerUi.xaml.cs">
-      <DependentUpon>OsMinerUi.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="OsMiner\Patterns\AutoTestResultsUi.xaml.cs">
-      <DependentUpon>AutoTestResultsUi.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="OsMiner\Patterns\IPattern.cs" />
-    <Compile Include="OsMiner\Patterns\PatternCandle.cs" />
-    <Compile Include="OsMiner\Patterns\PatternController.cs" />
-    <Compile Include="OsMiner\Patterns\PatternControllerUi.xaml.cs">
-      <DependentUpon>PatternControllerUi.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="OsMiner\Patterns\PatternIndicators.cs" />
-    <Compile Include="OsMiner\Patterns\PatternsCreateUi.xaml.cs">
-      <DependentUpon>PatternsCreateUi.xaml</DependentUpon>
-    </Compile>
-    <Compile Include="OsMiner\Patterns\PatternTime.cs" />
-    <Compile Include="OsMiner\Patterns\PatternVolume.cs" />
     <Compile Include="OsOptimizer\OptEntity\AsyncBotFactory.cs" />
     <Compile Include="OsOptimizer\OptEntity\ChartPainterLine.cs" />
     <Compile Include="OsOptimizer\OptEntity\OptimizerBotParametersSimpleUi.xaml.cs">
@@ -1293,10 +1270,6 @@
       <DependentUpon>WilliamsRangeTradeUi.xaml</DependentUpon>
     </Compile>
     <Compile Include="Robots\MarketMaker\MarketMakerBot.cs" />
-    <Compile Include="Robots\Patterns\PatternTrader.cs" />
-    <Compile Include="Robots\Patterns\PatternTraderUi.xaml.cs">
-      <DependentUpon>PatternTraderUi.xaml</DependentUpon>
-    </Compile>
     <Compile Include="Robots\CounterTrend\StrategyBollinger.cs" />
     <Compile Include="OsTrader\Panels\Tab\BotTabClusterUi.xaml.cs">
       <DependentUpon>BotTabClusterUi.xaml</DependentUpon>
@@ -1727,26 +1700,6 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="OsMiner\OsMinerSetUi.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Include="OsMiner\OsMinerUi.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Include="OsMiner\Patterns\AutoTestResultsUi.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Include="OsMiner\Patterns\PatternControllerUi.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Include="OsMiner\Patterns\PatternsCreateUi.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
     <Page Include="OsConverter\OsConverterUi.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
@@ -1868,10 +1821,6 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Robots\CounterTrend\WilliamsRangeTradeUi.xaml">
-      <SubType>Designer</SubType>
-      <Generator>MSBuild:Compile</Generator>
-    </Page>
-    <Page Include="Robots\Patterns\PatternTraderUi.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

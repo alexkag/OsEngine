@@ -22,7 +22,6 @@ using OsEngine.Market.Servers.Miner;
 using OsEngine.Market.Servers.Optimizer;
 using OsEngine.OsConverter;
 using OsEngine.OsData;
-using OsEngine.OsMiner;
 using OsEngine.OsOptimizer;
 using OsEngine.OsTrader;
 using OsEngine.OsTrader.Panels;
@@ -313,11 +312,6 @@ namespace OsEngine.Logging
                 _optimizerDataStoreges[i].LogMessageEvent -= ProcessMessage;
             }
 
-            for (int i = 0; i < _osMinerMasters.Count; i++)
-            {
-                _osMinerMasters[i].LogMessageEvent -= ProcessMessage;
-            }
-
             for (int i = 0; i < _osDataMasters.Count; i++)
             {
                 _osDataMasters[i].NewLogMessageEvent -= ProcessMessage;
@@ -343,7 +337,6 @@ namespace OsEngine.Logging
             _osTraderMasters.Clear();
             _botPanels.Clear();
             _optimizerDataStoreges.Clear();
-            _osMinerMasters.Clear();
             _osDataMasters.Clear();
             _optimizers.Clear();
             _miners.Clear();
@@ -354,7 +347,6 @@ namespace OsEngine.Logging
             _osTraderMasters = null;
             _botPanels = null;
             _optimizerDataStoreges = null;
-            _osMinerMasters = null;
             _osDataMasters = null;
             _optimizers = null;
             _miners = null;
@@ -445,7 +437,6 @@ namespace OsEngine.Logging
         List<OsTraderMaster> _osTraderMasters = new List<OsTraderMaster>();
         List<BotPanel> _botPanels = new List<BotPanel>();
         List<OptimizerDataStorage> _optimizerDataStoreges = new List<OptimizerDataStorage>();
-        List<OsMinerMaster> _osMinerMasters = new List<OsMinerMaster>();
         List<OsDataMasterPainter> _osDataMasters = new List<OsDataMasterPainter>();
         List<OptimizerMaster> _optimizers = new List<OptimizerMaster>();
         List<OsMinerServer> _miners = new List<OsMinerServer>();
@@ -493,17 +484,6 @@ namespace OsEngine.Logging
         {
             master.NewLogMessageEvent += ProcessMessage;
             _osDataMasters.Add(master);
-        }
-
-        /// <summary>
-        /// start listening to the OsData
-        /// начать прослушку OsData
-        /// </summary>
-        /// <param name="master"></param>
-        public void Listen(OsMinerMaster master)
-        {
-            master.LogMessageEvent += ProcessMessage;
-            _osMinerMasters.Add(master);
         }
 
         /// <summary>

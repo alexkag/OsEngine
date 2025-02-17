@@ -21,7 +21,6 @@ using OsEngine.Candles.Series;
 using OsEngine.Candles;
 using OsEngine.Market.Servers;
 using OsEngine.Candles.Factory;
-using OsEngine.OsTrader.RiskManager;
 
 namespace OsEngine.OsTrader.Panels.Tab
 {

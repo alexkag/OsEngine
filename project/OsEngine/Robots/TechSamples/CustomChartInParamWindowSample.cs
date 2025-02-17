@@ -1,5 +1,4 @@
 ﻿using OsEngine.Entity;
-using OsEngine.OsMiner.Patterns;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader.Panels.Attributes;
 using OsEngine.OsTrader.Panels.Tab;

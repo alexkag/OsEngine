@@ -18,7 +18,6 @@ using OsEngine.Language;
 using OsEngine.Market;
 using OsEngine.OsConverter;
 using OsEngine.OsData;
-using OsEngine.OsMiner;
 using OsEngine.OsOptimizer;
 using OsEngine.OsTrader.Gui;
 using OsEngine.PrimeSettings;
@@ -160,7 +159,6 @@ namespace OsEngine
             ButtonCandleConverter.IsEnabled = false;
             ButtonConverter.IsEnabled = false;
             ButtonOptimizer.IsEnabled = false;
-            ButtonMiner.IsEnabled = false;
             ButtonTesterLight.IsEnabled = false;
             ButtonRobotLight.IsEnabled = false;
         }
@@ -201,7 +199,6 @@ namespace OsEngine
             ButtonCandleConverter.IsEnabled = true;
             ButtonConverter.IsEnabled = true;
             ButtonOptimizer.IsEnabled = true;
-            ButtonMiner.IsEnabled = true;
             ButtonTesterLight.IsEnabled = true;
             ButtonRobotLight.IsEnabled = true;
         }
@@ -297,7 +294,6 @@ namespace OsEngine
             ButtonConverter.Content = OsLocalization.MainWindow.OsConverter;
             ButtonTester.Content = OsLocalization.MainWindow.OsTesterName;
             ButtonOptimizer.Content = OsLocalization.MainWindow.OsOptimizerName;
-            ButtonMiner.Content = OsLocalization.MainWindow.OsMinerName;
 
             ButtonRobot.Content = OsLocalization.MainWindow.OsBotStationName;
             ButtonCandleConverter.Content = OsLocalization.MainWindow.OsCandleConverter;
@@ -643,25 +639,6 @@ namespace OsEngine
                 _startProgram = StartProgram.IsOsOptimizer;
                 Hide();
                 OptimizerUi ui = new OptimizerUi();
-                ui.ShowDialog();
-                Close();
-                ProccesIsWorked = false;
-                Thread.Sleep(10000);
-            }
-            catch (Exception error)
-            {
-                MessageBox.Show(error.ToString());
-            }
-            Process.GetCurrentProcess().Kill();
-        }
-
-        private void ButtonMiner_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                _startProgram = StartProgram.IsOsMiner;
-                Hide();
-                OsMinerUi ui = new OsMinerUi();
                 ui.ShowDialog();
                 Close();
                 ProccesIsWorked = false;

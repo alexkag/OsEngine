@@ -15,7 +15,6 @@ using OsEngine.Entity;
 using OsEngine.Language;
 using OsEngine.Logging;
 using OsEngine.Market.Servers.Entity;
-using OsEngine.OsMiner.Patterns;
 
 namespace OsEngine.Market.Servers.AstsBridge
 {
