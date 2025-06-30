@@ -109,8 +109,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             catch (Exception ex)
             {
                 SendLogMessage($"Error connecting to server: {ex}", LogMessageType.Error);
-                ServerStatus = ServerConnectStatus.Disconnect;
-                DisconnectEvent?.Invoke();
+                SetDisconnected();
             }
         }
 
@@ -149,14 +148,13 @@ namespace OsEngine.Market.Servers.FinamGrpc
             _myPortfolios.Clear();
             _dicOrderBookStreams.Clear();
             _dicLatestTradesStreams.Clear();
+            _dicLastMdTime.Clear();
+
+            //_lastTimeCheckConnection = DateTime.UtcNow;
 
             SendLogMessage("Connection to Finam gRPC closed. Data streams Closed Event", LogMessageType.System);
 
-            if (ServerStatus != ServerConnectStatus.Disconnect)
-            {
-                ServerStatus = ServerConnectStatus.Disconnect;
-                DisconnectEvent?.Invoke();
-            }
+            SetDisconnected();
         }
 
         public List<IServerParameter> ServerParameters { get; set; }
@@ -547,16 +545,14 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     }
                 }
 
-                if (_lastMdTime != DateTime.MinValue &&
-                    _lastMdTime >= depth.Time)
-                {
-                    depth.Time = _lastMdTime.AddMilliseconds(1);
-                }
-
                 depth.Asks.Sort((x, y) => x.Price.CompareTo(y.Price));
                 depth.Bids.Sort((y, x) => x.Price.CompareTo(y.Price));
 
-                _lastMdTime = depth.Time;
+                if (_dicLastMdTime[security.NameId] >= depth.Time)
+                {
+                    depth.Time = _dicLastMdTime[security.NameId].AddMilliseconds(1);
+                }
+                _dicLastMdTime[security.NameId] = depth.Time;
             }
             catch (RpcException ex)
             {
@@ -689,16 +685,16 @@ namespace OsEngine.Market.Servers.FinamGrpc
         private WebProxy _proxy;
 
         //private AsyncDuplexStreamingCall<SubscribeQuoteRequest, SubscribeQuoteResponse> _marketDataStream;
-        private AsyncServerStreamingCall<SubscribeQuoteResponse> _quoteStream;
+        //private AsyncServerStreamingCall<SubscribeQuoteResponse> _quoteStream;
         private Dictionary<string, OrderBookStreamReaderInfo> _dicOrderBookStreams = new Dictionary<string, OrderBookStreamReaderInfo>();
         private Dictionary<string, TradesStreamReaderInfo> _dicLatestTradesStreams = new Dictionary<string, TradesStreamReaderInfo>();
         //private AsyncServerStreamingCall<SubscribeLatestTradesResponse> _myOrdersStream;
         private AsyncDuplexStreamingCall<OrderTradeRequest, OrderTradeResponse> _myOrderTradeStream;
 
-        private DateTime _lastQuoteTime = DateTime.MinValue;
-        private DateTime _lastLatestTradesTime = DateTime.MinValue;
-        private DateTime _lastLatestOrdersTime = DateTime.MinValue;
-        private DateTime _lastMdTime = DateTime.MinValue;
+        //private DateTime _lastQuoteTime = DateTime.MinValue;
+        //private DateTime _lastLatestTradesTime = DateTime.MinValue;
+        //private DateTime _lastMyOrderTradeTime = DateTime.MinValue;
+        private Dictionary<string, DateTime> _dicLastMdTime = new Dictionary<string, DateTime>();
 
         private AuthService.AuthServiceClient _authClient;
         private AssetsService.AssetsServiceClient _assetsClient;
@@ -733,8 +729,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     quoteRequest.Symbols.Add(_subscribedSecurities[i].NameId);
                 }
                 _rateGateSubscribeSubscribeQuote.WaitToProceed();
-                _quoteStream =
-                    _marketDataClient.SubscribeQuote(quoteRequest, _gRpcMetadata, null, _cancellationTokenSource.Token);
+                //_quoteStream =
+                //    _marketDataClient.SubscribeQuote(quoteRequest, _gRpcMetadata, null, _cancellationTokenSource.Token);
                 //quoteResponse.ResponseStream.ReadAllAsync(); //.ConfigureAwait(false);
 
                 _rateGateSubscribeOrderBook.WaitToProceed();
@@ -746,8 +742,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
 
                 // Получаем начальный стакан
+                _dicLastMdTime.TryAdd(security.NameId, DateTime.UtcNow.AddHours(_timezoneOffset));
                 MarketDepth depth = GetMarketDepth(security);
-                MarketDepthEvent?.Invoke(depth);
+                if ((depth.Bids != null && depth.Bids.Count > 0) || (depth.Asks != null && depth.Asks.Count > 0))
+                {
+                    MarketDepthEvent?.Invoke(depth);
+                }
 
                 // Получаем недостающие данные по тикеру
                 UpdateSecurityParams(security);
@@ -995,7 +995,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                         continue;
                     }
 
-                    _lastLatestOrdersTime = DateTime.UtcNow;
+                    _dicLastMdTime[security.NameId] = DateTime.UtcNow.AddHours(_timezoneOffset);
 
                     if (latestOrderBookResponse.OrderBook != null && latestOrderBookResponse.OrderBook.Count > 0)
                     {
@@ -1033,16 +1033,20 @@ namespace OsEngine.Market.Servers.FinamGrpc
                                 }
                             }
 
-                            if (_lastMdTime != DateTime.MinValue && _lastMdTime >= depth.Time)
-                            {
-                                depth.Time = _lastMdTime.AddMilliseconds(1);
-                            }
 
                             depth.Asks.Sort((x, y) => x.Price.CompareTo(y.Price));
                             depth.Bids.Sort((y, x) => x.Price.CompareTo(y.Price));
 
-                            _lastMdTime = depth.Time;
-                            MarketDepthEvent?.Invoke(depth);
+                            if (_dicLastMdTime[security.NameId] >= depth.Time)
+                            {
+                                depth.Time = _dicLastMdTime[security.NameId].AddMilliseconds(1);
+                            }
+                            _dicLastMdTime[security.NameId] = depth.Time;
+
+                            if ((depth.Bids != null && depth.Bids.Count > 0) || (depth.Asks != null && depth.Asks.Count > 0))
+                            {
+                                MarketDepthEvent?.Invoke(depth);
+                            }
                         }
                     }
                 }
@@ -1205,6 +1209,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
         }
 
+        // TODO Можно разделить на orders и trades
         private async void MyOrderTradeMessageReader()
         {
             Thread.Sleep(1000);
@@ -1241,7 +1246,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                         continue;
                     }
 
-                    _lastLatestOrdersTime = DateTime.UtcNow;
+                    //_lastMyOrderTradeTime = DateTime.UtcNow;
 
                     if (myOrderTradeResponse.Orders != null && myOrderTradeResponse.Orders.Count > 0)
                     {
@@ -1283,11 +1288,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     SendLogMessage($"OrderTrade stream was disconnected: {exception.Message}", LogMessageType.Error);
 
                     // need to reconnect everything
-                    if (ServerStatus != ServerConnectStatus.Disconnect)
-                    {
-                        ServerStatus = ServerConnectStatus.Disconnect;
-                        DisconnectEvent?.Invoke();
-                    }
+                    SetDisconnected();
                     Thread.Sleep(5000);
                 }
                 catch (Exception exception)
@@ -1398,6 +1399,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
                     if (resp == null)
                     {
+                        SetDisconnected();
                         Thread.Sleep(3000);
                         continue;
                     }
@@ -1406,14 +1408,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
                     // Sleep1 + Sleep2 + some overhead
                     // Trigger when twice fail
-                    if (_lastTimeCheckConnection.AddSeconds(5) < DateTime.Now && _lastTimeCheckConnection > DateTime.MinValue)
-                    {
-                        if (ServerStatus == ServerConnectStatus.Connect)
-                        {
-                            ServerStatus = ServerConnectStatus.Disconnect;
-                            DisconnectEvent?.Invoke();
-                        }
-                    }
+                    //if (_lastTimeCheckConnection.AddSeconds(5) < DateTime.Now && _lastTimeCheckConnection > DateTime.MinValue)
+                    //{
+                    //    SetDisconnected();
+                    //}
                 }
                 catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
                 {
@@ -1429,38 +1427,26 @@ namespace OsEngine.Market.Servers.FinamGrpc
                         string message = GetGRPCErrorMessage(ex);
                         SendLogMessage($"Token is expired: {message}", LogMessageType.System);
                     }
-                    if (ServerStatus == ServerConnectStatus.Connect)
-                    {
-                        ServerStatus = ServerConnectStatus.Disconnect;
-                        DisconnectEvent?.Invoke();
-                    }
+                    SetDisconnected();
                     Thread.Sleep(1000);
                 }
                 catch (RpcException ex)
                 {
                     string msg = GetGRPCErrorMessage(ex);
                     SendLogMessage($"Error while get time from FinamGrpc. Info: {msg}", LogMessageType.Error);
-                    if (ServerStatus == ServerConnectStatus.Connect)
-                    {
-                        ServerStatus = ServerConnectStatus.Disconnect;
-                        DisconnectEvent?.Invoke();
-                    }
+                    SetDisconnected();
                     Thread.Sleep(1000);
                 }
                 catch (Exception error)
                 {
-                    if (ServerStatus == ServerConnectStatus.Connect)
-                    {
-                        ServerStatus = ServerConnectStatus.Disconnect;
-                        DisconnectEvent?.Invoke();
-                    }
+                    SetDisconnected();
                     SendLogMessage(error.ToString(), LogMessageType.Error);
                     Thread.Sleep(1000);
                 }
             }
         }
 
-        private DateTime _lastTimeCheckConnection = DateTime.MinValue;
+        //private DateTime _lastTimeCheckConnection = DateTime.MinValue;
         #endregion
 
         #region 10 Trade
@@ -1672,6 +1658,14 @@ namespace OsEngine.Market.Servers.FinamGrpc
         #endregion
 
         #region 11 Helpers
+        public void SetDisconnected()
+        {
+            if (ServerStatus != ServerConnectStatus.Disconnect)
+            {
+                ServerStatus = ServerConnectStatus.Disconnect;
+                DisconnectEvent?.Invoke();
+            }
+        }
 
         private string GetGRPCErrorMessage(RpcException ex)
         {
