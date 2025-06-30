@@ -142,6 +142,13 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             SendLogMessage("Completed exchange with data streams (orderbook and trades)", LogMessageType.System);
 
+            _channel?.Dispose();
+            _channel = null;
+
+            _subscribedSecurities.Clear();
+            _myPortfolios.Clear();
+            _dicOrderBookStreams.Clear();
+            _dicLatestTradesStreams.Clear();
 
             SendLogMessage("Connection to Finam gRPC closed. Data streams Closed Event", LogMessageType.System);
 
@@ -674,16 +681,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
             ConnectEvent?.Invoke();
         }
 
-        private void ReconnectGRPCStreams()
-        {
-            SendLogMessage("Connecting GRPC streams", LogMessageType.Connect);
-
-
-
-            _lastLatestTradesTime = DateTime.UtcNow;
-        }
-
-
         //private readonly string _gRPCHost = "https://ftrr01.finam.ru:443";
         private readonly string _gRPCHost = "https://api.finam.ru:443"; // https://t.me/finam_trade_api/1/1751
         private Metadata _gRpcMetadata;
@@ -693,8 +690,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         //private AsyncDuplexStreamingCall<SubscribeQuoteRequest, SubscribeQuoteResponse> _marketDataStream;
         private AsyncServerStreamingCall<SubscribeQuoteResponse> _quoteStream;
-        private Dictionary<string, OrderBookStreamReaderInfo> _orderBookStreams = new Dictionary<string, OrderBookStreamReaderInfo>();
-        private Dictionary<string, TradesStreamReaderInfo> _latestTradesStreams = new Dictionary<string, TradesStreamReaderInfo>();
+        private Dictionary<string, OrderBookStreamReaderInfo> _dicOrderBookStreams = new Dictionary<string, OrderBookStreamReaderInfo>();
+        private Dictionary<string, TradesStreamReaderInfo> _dicLatestTradesStreams = new Dictionary<string, TradesStreamReaderInfo>();
         //private AsyncServerStreamingCall<SubscribeLatestTradesResponse> _myOrdersStream;
         private AsyncDuplexStreamingCall<OrderTradeRequest, OrderTradeResponse> _myOrderTradeStream;
 
@@ -781,7 +778,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
         // Запуск reader для конкретного инструмента
         private void StartLatestTradesStream(Security security)
         {
-            if (_latestTradesStreams.ContainsKey(security.NameId))
+            if (_dicLatestTradesStreams.ContainsKey(security.NameId))
             {
                 // Уже есть reader, не запускаем второй
                 return;
@@ -795,14 +792,14 @@ namespace OsEngine.Market.Servers.FinamGrpc
             streamReaderInfo.CancellationTokenSource = cts;
 
             streamReaderInfo.Stream = _marketDataClient.SubscribeLatestTrades(new SubscribeLatestTradesRequest { Symbol = security.NameId }, _gRpcMetadata, null, cts.Token);
-            streamReaderInfo.ReaderTask = Task.Run(() => SingleTradesMessageReader(streamReaderInfo.Stream, cts.Token, security.NameId), cts.Token);
+            streamReaderInfo.ReaderTask = Task.Run(() => SingleTradesMessageReader(streamReaderInfo.Stream, cts.Token, security), cts.Token);
 
-            _latestTradesStreams[security.NameId] = streamReaderInfo;
+            _dicLatestTradesStreams[security.NameId] = streamReaderInfo;
         }
 
         private void StartOrderBookStream(Security security)
         {
-            if (_orderBookStreams.ContainsKey(security.NameId))
+            if (_dicOrderBookStreams.ContainsKey(security.NameId))
             {
                 return;
             }
@@ -815,9 +812,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
             streamReaderInfo.CancellationTokenSource = cts;
 
             streamReaderInfo.Stream = _marketDataClient.SubscribeOrderBook(new SubscribeOrderBookRequest { Symbol = security.NameId }, _gRpcMetadata, null, cts.Token);
-            streamReaderInfo.ReaderTask = Task.Run(() => SingleMarketDepthReader(streamReaderInfo.Stream, cts.Token, security.NameId), cts.Token);
+            streamReaderInfo.ReaderTask = Task.Run(() => SingleMarketDepthReader(streamReaderInfo.Stream, cts.Token, security), cts.Token);
 
-            _orderBookStreams[security.NameId] = streamReaderInfo;
+            _dicOrderBookStreams[security.NameId] = streamReaderInfo;
         }
 
         // Переподключение reader для конкретного инструмента
@@ -830,13 +827,13 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         private void DisconnectLatestTradesStream(Security security)
         {
-            if (_latestTradesStreams.TryGetValue(security.NameId, out TradesStreamReaderInfo info))
+            if (_dicLatestTradesStreams.TryGetValue(security.NameId, out TradesStreamReaderInfo info))
             {
                 // Отменяем токен только для этого ридера
                 info.CancellationTokenSource.Cancel();
                 try { info.ReaderTask.Wait(1000); } catch { }
-                if(info.Stream != null) info.Stream.Dispose();
-                _latestTradesStreams.Remove(security.NameId);
+                if (info.Stream != null) info.Stream.Dispose();
+                _dicLatestTradesStreams.Remove(security.NameId);
             }
         }
 
@@ -849,13 +846,13 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         private void DisconnectOrderBookStream(Security security)
         {
-            if (_orderBookStreams.TryGetValue(security.NameId, out OrderBookStreamReaderInfo info))
+            if (_dicOrderBookStreams.TryGetValue(security.NameId, out OrderBookStreamReaderInfo info))
             {
                 // Отменяем токен только для этого ридера
                 info.CancellationTokenSource.Cancel();
                 try { info.ReaderTask.Wait(1000); } catch { }
-                if(info.Stream != null) info.Stream.Dispose();
-                _latestTradesStreams.Remove(security.NameId);
+                if (info.Stream != null) info.Stream.Dispose();
+                _dicLatestTradesStreams.Remove(security.NameId);
             }
         }
 
@@ -880,9 +877,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
         }
 
         // Reader для стрима
-        private async Task SingleTradesMessageReader(AsyncServerStreamingCall<SubscribeLatestTradesResponse> stream, CancellationToken token, string symbol)
+        private async Task SingleTradesMessageReader(AsyncServerStreamingCall<SubscribeLatestTradesResponse> stream, CancellationToken token, Security security)
         {
-            SendLogMessage($"[DEBUG] Start reader for {symbol}", LogMessageType.System);
+            SendLogMessage($"[DEBUG] Start trades reader for {security.NameId}", LogMessageType.System);
             await Task.Delay(1000, token);
 
             try
@@ -898,18 +895,18 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     bool hasData;
                     try
                     {
-                        SendLogMessage($"[DEBUG] MoveNext called for {symbol}", LogMessageType.System);
+                        SendLogMessage($"[DEBUG] MoveNext called for {security.NameId}", LogMessageType.System);
                         hasData = await stream.ResponseStream.MoveNext();
                     }
                     catch (Exception ex)
                     {
-                        SendLogMessage($"[DEBUG] Exception in reader for {symbol}: {ex}", LogMessageType.Error);
+                        SendLogMessage($"[DEBUG] Exception in reader for {security.NameId}: {ex}", LogMessageType.Error);
                         break;
                     }
 
                     if (!hasData)
                     {
-                        SendLogMessage($"[DEBUG] Stream closed by server for {symbol}", LogMessageType.System);
+                        SendLogMessage($"[DEBUG] Stream closed by server for {security.NameId}", LogMessageType.System);
                         break;
                     }
 
@@ -919,12 +916,13 @@ namespace OsEngine.Market.Servers.FinamGrpc
                         await Task.Delay(1, token);
                         continue;
                     }
-                    Security security = GetSecurity(latestTradesResponse.Symbol);
-                    if (security == null)
+
+                    if (security.NameId != latestTradesResponse.Symbol)
                     {
-                        await Task.Delay(1, token);
+                        SendLogMessage($"Trades stream. Expected trade for {security.NameId}, got for {latestTradesResponse.Symbol}.", LogMessageType.System);
                         continue;
                     }
+
                     if (latestTradesResponse.Trades != null && latestTradesResponse.Trades.Count > 0)
                     {
                         for (int i = 0; i < latestTradesResponse.Trades.Count; i++)
@@ -945,21 +943,21 @@ namespace OsEngine.Market.Servers.FinamGrpc
                             trade.Volume = newTrade.Size.Value.ToString().ToDecimal();
                             NewTradesEvent?.Invoke(trade);
                         }
-                        SendLogMessage($"[DEBUG] Received trades for {symbol}: {latestTradesResponse.Trades?.Count ?? 0}", LogMessageType.System);
+                        SendLogMessage($"[DEBUG] Received trades for {security.NameId}: {latestTradesResponse.Trades?.Count ?? 0}", LogMessageType.System);
                     }
                 }
             }
-            catch (OperationCanceledException) { SendLogMessage($"[DEBUG] Reader for {symbol} cancelled", LogMessageType.System); }
-            catch (Exception ex) { SendLogMessage($"[DEBUG] Reader for {symbol} exception: {ex}", LogMessageType.Error); }
+            catch (OperationCanceledException) { SendLogMessage($"[DEBUG] Reader for {security.NameId} cancelled", LogMessageType.System); }
+            catch (Exception ex) { SendLogMessage($"[DEBUG] Reader for {security.NameId} exception: {ex}", LogMessageType.Error); }
             finally
             {
-                SendLogMessage($"[DEBUG] Reader for {symbol} finished", LogMessageType.System);
+                SendLogMessage($"[DEBUG] Reader for {security.NameId} finished", LogMessageType.System);
             }
         }
 
-        private async Task SingleMarketDepthReader(AsyncServerStreamingCall<SubscribeOrderBookResponse> stream, CancellationToken token, string symbol)
+        private async Task SingleMarketDepthReader(AsyncServerStreamingCall<SubscribeOrderBookResponse> stream, CancellationToken token, Security security)
         {
-            SendLogMessage($"[DEBUG] Start MarketDepth reader for {symbol}", LogMessageType.System);
+            SendLogMessage($"[DEBUG] Start MarketDepth reader for {security.NameId}", LogMessageType.System);
             await Task.Delay(1000, token);
 
             try
@@ -975,18 +973,18 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     bool hasData;
                     try
                     {
-                        SendLogMessage($"[DEBUG] MarketDepth MoveNext called for {symbol}", LogMessageType.System);
+                        SendLogMessage($"[DEBUG] MarketDepth MoveNext called for {security.NameId}", LogMessageType.System);
                         hasData = await stream.ResponseStream.MoveNext(token);
                     }
                     catch (Exception ex)
                     {
-                        SendLogMessage($"[DEBUG] Exception in MarketDepth reader for {symbol}: {ex}", LogMessageType.Error);
+                        SendLogMessage($"[DEBUG] Exception in MarketDepth reader for {security.NameId}: {ex}", LogMessageType.Error);
                         break;
                     }
 
                     if (!hasData)
                     {
-                        SendLogMessage($"[DEBUG] MarketDepth stream closed by server for {symbol}", LogMessageType.System);
+                        SendLogMessage($"[DEBUG] MarketDepth stream closed by server for {security.NameId}", LogMessageType.System);
                         break;
                     }
 
@@ -1003,8 +1001,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     {
                         foreach (StreamOrderBook ob in latestOrderBookResponse.OrderBook)
                         {
-                            Security security = GetSecurity(ob.Symbol);
-                            if (security == null) continue;
+                            if (security.NameId != ob.Symbol)
+                            {
+                                SendLogMessage($"MarketDepth stream. Expected Market Depth Level for {security.NameId}, got for {ob.Symbol}.", LogMessageType.System);
+                                continue;
+                            }
 
                             MarketDepth depth = new MarketDepth
                             {
@@ -1046,11 +1047,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     }
                 }
             }
-            catch (OperationCanceledException) { SendLogMessage($"[DEBUG] MarketDepth reader for {symbol} cancelled", LogMessageType.System); }
-            catch (Exception ex) { SendLogMessage($"[DEBUG] MarketDepth reader for {symbol} exception: {ex}", LogMessageType.Error); }
+            catch (OperationCanceledException) { SendLogMessage($"[DEBUG] MarketDepth reader for {security.NameId} cancelled", LogMessageType.System); }
+            catch (Exception ex) { SendLogMessage($"[DEBUG] MarketDepth reader for {security.NameId} exception: {ex}", LogMessageType.Error); }
             finally
             {
-                SendLogMessage($"[DEBUG] MarketDepth reader for {symbol} finished", LogMessageType.System);
+                SendLogMessage($"[DEBUG] MarketDepth reader for {security.NameId} finished", LogMessageType.System);
             }
         }
 
