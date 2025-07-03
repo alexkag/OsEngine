@@ -115,7 +115,16 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         public void Dispose()
         {
-            if (_myOrderTradeStream != null)
+            try
+            {
+                DisconnectAllDataStreams();
+            }
+            catch (Exception ex)
+            {
+                SendLogMessage($"Error cancelling stream: {ex}", LogMessageType.Error);
+            }
+
+            if (_myOrderTradeStream?.RequestStream != null)
             {
                 try
                 {
@@ -127,16 +136,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
 
                 SendLogMessage("Completed exchange with my orders and trades stream", LogMessageType.System);
-            }
-
-
-            try
-            {
-                DisconnectAllDataStreams();
-            }
-            catch (Exception ex)
-            {
-                SendLogMessage($"Error cancelling stream: {ex}", LogMessageType.Error);
             }
 
             SendLogMessage("Completed exchange with data streams (orderbook and trades)", LogMessageType.System);
@@ -425,8 +424,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
             try
             {
                 // convert all times to UTC
-                DateTime fromDateTimeUtc = DateTime.SpecifyKind(fromDateTime.AddHours(-_timezoneOffset), DateTimeKind.Utc); // MSK -> UTC
-                DateTime toDateTimeUtc = DateTime.SpecifyKind(toDateTime.AddHours(-_timezoneOffset), DateTimeKind.Utc);
+                DateTime fromDateTimeUtc = DateTime.SpecifyKind(fromDateTime.AddHours(-_timezoneOffset).Date, DateTimeKind.Utc); // MSK -> UTC
+                DateTime toDateTimeUtc = DateTime.SpecifyKind(toDateTime.AddHours(-_timezoneOffset).AddDays(-1).Date, DateTimeKind.Utc);
 
                 BarsRequest req = new BarsRequest
                 {
@@ -1597,6 +1596,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 string message = GetGRPCErrorMessage(ex);
                 SendLogMessage($"Error place order. Info: {message}", LogMessageType.Error);
+                order.Comment = message;
                 InvokeOrderFail(order);
                 return;
             }
@@ -1857,12 +1857,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
             // Substract 2 Days for Finam quirks
             return tf switch
             {
-                FTimeFrame.M1 => TimeSpan.FromDays(7),
-                FTimeFrame.D => TimeSpan.FromDays(365),
+                FTimeFrame.M1 => TimeSpan.FromDays(5),
+                FTimeFrame.D => TimeSpan.FromDays(363),
                 //FTimeFrame.W => TimeSpan.FromDays(365),
                 //FTimeFrame.MN => TimeSpan.FromDays(365),
                 //FTimeFrame.QR => TimeSpan.FromDays(365),
-                _ => TimeSpan.FromDays(30),
+                _ => TimeSpan.FromDays(28),
             };
         }
 
