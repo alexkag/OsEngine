@@ -64,7 +64,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             worker1.Name = "CheckAliveFinamGrpc";
             worker1.Start();
 
-            Thread worker2 = new Thread(ReIssueTokenThread);
+            Thread worker2 = new Thread(ReSubscribleThread);
             worker2.Name = "ReIssueTokenThreadFinamGrpc";
             worker2.Start();
 
@@ -345,8 +345,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
         #region 5 Data
         public List<Candle> GetLastCandleHistory(Security security, TimeFrameBuilder timeFrameBuilder, int candleCount)
         {
-            DateTime timeStart = DateTime.UtcNow.AddHours(_timezoneOffset) - TimeSpan.FromMinutes(timeFrameBuilder.TimeFrameTimeSpan.TotalMinutes * candleCount);
-            DateTime timeEnd = DateTime.UtcNow.AddHours(_timezoneOffset); // to MSK
+            //DateTime timeStart = DateTime.UtcNow.AddHours(_timezoneOffset) - TimeSpan.FromMinutes(timeFrameBuilder.TimeFrameTimeSpan.TotalMinutes * candleCount);
+            DateTime timeStart = DateTime.UtcNow - TimeSpan.FromMinutes(timeFrameBuilder.TimeFrameTimeSpan.TotalMinutes * candleCount);
+            DateTime timeEnd = DateTime.UtcNow;
 
             List<Candle> candles = GetCandleDataToSecurity(security, timeFrameBuilder, timeStart, timeEnd, timeStart);
 
@@ -371,10 +372,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
             //{
             //    endTime = actualTime;
             //}
-
-            // ensure all times are UTC
-            startTime = DateTime.SpecifyKind(startTime.AddHours(-_timezoneOffset), DateTimeKind.Utc); // MSK -> UTC
-            endTime = DateTime.SpecifyKind(endTime.AddHours(-_timezoneOffset), DateTimeKind.Utc);
 
             TimeSpan tsHistoryDepth = getHistoryDepth(ftf);
             DateTime queryStartTime = startTime;
@@ -421,15 +418,21 @@ namespace OsEngine.Market.Servers.FinamGrpc
         {
             if (ftf == FTimeFrame.Unspecified) return null;
 
+            if (toDateTime < fromDateTime) return null;
+
             BarsResponse resp = null;
 
             try
             {
+                // convert all times to UTC
+                DateTime fromDateTimeUtc = DateTime.SpecifyKind(fromDateTime.AddHours(-_timezoneOffset), DateTimeKind.Utc); // MSK -> UTC
+                DateTime toDateTimeUtc = DateTime.SpecifyKind(toDateTime.AddHours(-_timezoneOffset), DateTimeKind.Utc);
+
                 BarsRequest req = new BarsRequest
                 {
                     Symbol = security.NameId,
                     Timeframe = ftf,
-                    Interval = new Google.Type.Interval { StartTime = Timestamp.FromDateTime(fromDateTime), EndTime = Timestamp.FromDateTime(toDateTime) }
+                    Interval = new Google.Type.Interval { StartTime = Timestamp.FromDateTime(fromDateTimeUtc), EndTime = Timestamp.FromDateTime(toDateTimeUtc) }
                 };
 
                 _rateGateMarketDataBars.WaitToProceed();
@@ -446,6 +449,20 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
 
             List<Candle> candles = ConvertToOsEngineCandles(resp);
+
+            while (candles != null &&
+                candles.Count != 0 &&
+                candles[candles.Count - 1].TimeStart > toDateTime)
+            {
+                candles.RemoveAt(candles.Count - 1);
+            }
+
+            while (candles != null &&
+                candles.Count != 0 &&
+                candles[0].TimeStart < fromDateTime)
+            {
+                candles.RemoveAt(0);
+            }
 
             return candles;
         }
@@ -681,6 +698,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 //_gRpcMetadata.Add("Authorization", auth.Token);
 
                 // Подписка один раз
+                _rateGateSubscribeOrderTrade.WaitToProceed();
                 _myOrderTradeStream = _myOrderTradeClient.SubscribeOrderTrade(_gRpcMetadata, null, _cancellationTokenSource.Token);
             }
             catch (RpcException ex)
@@ -834,7 +852,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
         //private AsyncServerStreamingCall<SubscribeLatestTradesResponse> _myOrdersStream;
         private RateGate _rateGateSubscribeOrderBook = new RateGate(200, TimeSpan.FromMinutes(1));
         private RateGate _rateGateSubscribeLatestTrades = new RateGate(200, TimeSpan.FromMinutes(1));
-        private RateGate _rateGateSubscribeSubscribeQuote = new RateGate(200, TimeSpan.FromMinutes(1));
+        private RateGate _rateGateSubscribeOrderTrade = new RateGate(200, TimeSpan.FromMinutes(1));
         List<Security> _subscribedSecurities = new List<Security>();
         #endregion
 
@@ -1526,17 +1544,25 @@ namespace OsEngine.Market.Servers.FinamGrpc
         /// Срок жизни JWT-токена 15 минут (по докам).
         /// TODO Сделать поток по переподключению с новым токеном (?)
         /// </summary>
-        private void ReIssueTokenThread()
+        private void ReSubscribleThread()
         {
-            int ms = Convert.ToInt32(_lifetimeJWTToken.TotalMilliseconds) - 60000;
+            int ms = Convert.ToInt32(_jwtTokenLifetime.TotalMilliseconds) - 60000;
             while (true)
             {
                 Thread.Sleep(ms);
                 updateAuth(_authClient);
+
+                _rateGateSubscribeOrderTrade.WaitToProceed();
+                _myOrderTradeStream = _myOrderTradeClient.SubscribeOrderTrade(_gRpcMetadata, null, _cancellationTokenSource.Token);
+
+                for(int i = 0; i < _subscribedSecurities.Count - 1; i++)
+                {
+                    ReSubscrible(_subscribedSecurities[i]);
+                }
             }
         }
 
-        private TimeSpan _lifetimeJWTToken = new TimeSpan(0, 0, 15, 0);
+        private TimeSpan _jwtTokenLifetime = new TimeSpan(0, 0, 15, 0);
 
         //private DateTime _lastTimeCheckConnection = DateTime.MinValue;
         #endregion
@@ -1828,6 +1854,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         protected TimeSpan getHistoryDepth(FTimeFrame tf)
         {
+            // Substract 2 Days for Finam quirks
             return tf switch
             {
                 FTimeFrame.M1 => TimeSpan.FromDays(7),
