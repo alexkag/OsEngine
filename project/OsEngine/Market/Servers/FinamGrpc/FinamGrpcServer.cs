@@ -506,17 +506,29 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 _rateGateGetAsset.WaitToProceed();
                 GetAssetResponse getAssetResponse = _assetsClient.GetAsset(
                     new GetAssetRequest { AccountId = _accountId, Symbol = security.NameId },
-                    headers: _gRpcMetadata);
+                    headers: _gRpcMetadata
+                    );
 
-                if (getAssetResponse == null) return;
-
-                security.Lot = getAssetResponse.LotSize.Value.ToDecimal();
-                security.Decimals = (int)getAssetResponse.Decimals;
-                security.PriceStep = getAssetResponse.MinStep.ToString().ToDecimal();
-                security.PriceStepCost = security.PriceStep;
-                if (getAssetResponse.ExpirationDate != null)
+                if (getAssetResponse != null)
                 {
-                    security.Expiration = getAssetResponse.ExpirationDate.ToDateTime().AddHours(_timezoneOffset); // convert to MSK
+                    security.Lot = getAssetResponse.LotSize.Value.ToDecimal();
+                    security.Decimals = (int)getAssetResponse.Decimals;
+                    security.PriceStep = getAssetResponse.MinStep.ToString().ToDecimal();
+                    security.PriceStepCost = security.PriceStep;
+                    if (getAssetResponse.ExpirationDate != null)
+                    {
+                        security.Expiration = getAssetResponse.ExpirationDate.ToDateTime().AddHours(_timezoneOffset); // convert to MSK
+                    }
+                }
+
+                GetAssetParamsResponse getAssetParamsResponse = _assetsClient.GetAssetParams(
+                    new GetAssetParamsRequest { AccountId = _accountId, Symbol = security.NameId },
+                    headers: _gRpcMetadata
+                    );
+
+                if (getAssetParamsResponse != null)
+                {
+                    security.State = getAssetParamsResponse.Tradeable ? SecurityStateType.Activ : SecurityStateType.Close;
                 }
             }
             catch (RpcException ex)
