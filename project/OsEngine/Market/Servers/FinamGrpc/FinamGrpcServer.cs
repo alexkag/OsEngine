@@ -795,6 +795,16 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     }
                 }
 
+                // Получаем недостающие данные по тикеру
+                UpdateSecurityParams(security);
+                
+                // Отменяем подписку, если инструмент не торгуется
+                if(security.State != SecurityStateType.Activ)
+                {
+                    SendLogMessage($"Error subscribe security {security.Name}: IS NOT TRADEABLE. Subscription skipped.", LogMessageType.Error);
+                    return;
+                }
+
                 _subscribedSecurities.Add(security);
 
                 //SubscribeQuoteRequest quoteRequest = new SubscribeQuoteRequest();
@@ -822,8 +832,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     MarketDepthEvent?.Invoke(depth);
                 }
 
-                // Получаем недостающие данные по тикеру
-                UpdateSecurityParams(security);
             }
             catch (RpcException ex)
             {
@@ -1445,7 +1453,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             Order myOrder = new Order();
             FOrder fOrder = orderState.Order;
-            myOrder.NumberUser = int.Parse(fOrder.ClientOrderId);
+            if(int.TryParse(fOrder.ClientOrderId, out int numUser))
+            {
+                myOrder.NumberUser = numUser;
+                //// Not OS Engine order
+                //return null;
+            }
             if (myOrder.NumberUser == 0) return null;
 
             myOrder.PortfolioNumber = fOrder.AccountId;
@@ -1484,7 +1497,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             if (myOrder.State == OrderStateType.Cancel)
             {
-                myOrder.TimeCancel = orderState.WithdrawAt.ToDateTime(); // TODO Описание в документации не соответствует названию параметра. Уточнить.
+                myOrder.TimeCancel = orderState.TransactAt.ToDateTime(); // TODO Описание в документации не соответствует названию параметра. Уточнить.
             }
 
             if (myOrder.State == OrderStateType.Done)
@@ -1675,6 +1688,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             for (int i = 0; orders != null && i < orders.Count; i++)
             {
+                if (orders[i] == null) continue;
                 MyOrderEvent?.Invoke(orders[i]);
             }
         }
@@ -1742,7 +1756,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             return false;
         }
 
-        public void GetOrderStatus(Order order)
+        public OrderStateType GetOrderStatus(Order order)
         {
             _rateGateGetOrder.WaitToProceed();
             OrderState orderResponse = null;
@@ -1754,19 +1768,22 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 string message = GetGRPCErrorMessage(ex);
                 SendLogMessage($"Get all orders request error. Info: {message}", LogMessageType.Error);
-                return;
+                return OrderStateType.None;
             }
             catch (Exception exception)
             {
                 SendLogMessage($"Get get all orders request error: {exception.Message}", LogMessageType.Error);
-                return;
+                return OrderStateType.None;
             }
 
-            if (orderResponse == null || string.IsNullOrEmpty(orderResponse.Order.ClientOrderId)) return;
+            if (orderResponse == null || string.IsNullOrEmpty(orderResponse.Order.ClientOrderId)) return OrderStateType.None;
 
             Order orderUpdated = ConvertToOSEngineOrder(orderResponse);
+            if (orderUpdated == null) return OrderStateType.None;
 
             MyOrderEvent?.Invoke(orderUpdated);
+
+            return orderUpdated.State;
         }
 
         public void CancelAllOrders()
@@ -1922,11 +1939,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
         private void SendLogMessage(string message, LogMessageType messageType)
         {
             LogMessageEvent?.Invoke(message, messageType);
-        }
-
-        OrderStateType IServerRealization.GetOrderStatus(Order order)
-        {
-            throw new NotImplementedException();
         }
 
         public event Action<string, LogMessageType> LogMessageEvent;
