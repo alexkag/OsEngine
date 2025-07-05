@@ -508,7 +508,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 {
                     security.Lot = getAssetResponse.LotSize.Value.ToDecimal();
                     security.Decimals = (int)getAssetResponse.Decimals;
-                    security.PriceStep = getAssetResponse.MinStep.ToString().ToDecimal();
+                    security.PriceStep = security.Decimals.GetValueByDecimals();
                     security.PriceStepCost = security.PriceStep;
                     if (getAssetResponse.ExpirationDate != null)
                     {
