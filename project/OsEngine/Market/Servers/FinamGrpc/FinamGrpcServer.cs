@@ -312,41 +312,46 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 myPortfolio = new Portfolio();
                 myPortfolio.Number = getAccountResponse.AccountId;
-                myPortfolio.ValueCurrent = getAccountResponse.Equity.Value.ToDecimal();
+                myPortfolio.ValueCurrent = Math.Truncate(getAccountResponse.Equity.Value.ToDecimal() * 100m) / 100m;
                 myPortfolio.ValueBegin = myPortfolio.ValueCurrent;
                 myPortfolio.UnrealizedPnl = getAccountResponse.UnrealizedProfit.Value.ToDecimal();
                 _myPortfolios.Add(myPortfolio);
             }
-
-            //for (int i = 0; i < getAccountResponse.Cash.Count; i++)
-            //{
-            //    GoogleType.Money pos = getAccountResponse.Cash[i];
-            //    PositionOnBoard newPos = new PositionOnBoard();
-
-            //    newPos.PortfolioName = myPortfolio.Number;
-            //    newPos.SecurityNameCode = pos.CurrencyCode;
-            //    newPos.ValueCurrent = GetValue(pos);
-            //    //newPos.ValueBlocked = pos.Blocked / instrument.Instrument.Lot;
-            //    newPos.ValueBegin = newPos.ValueCurrent;
-
-            //    myPortfolio.SetNewPosition(newPos);
-            //}
-
-            for (int i = 0; i < getAccountResponse.Positions.Count; i++)
+            else
             {
-                FPosition pos = getAccountResponse.Positions[i];
-                PositionOnBoard newPos = new PositionOnBoard();
-
-                newPos.PortfolioName = myPortfolio.Number;
-                newPos.SecurityNameCode = pos.Symbol; // TODO проверить
-                newPos.ValueCurrent = pos.Quantity.Value.ToDecimal();
-                //newPos.ValueCurrent = pos.Quantity.Value.ToDecimal() * pos.CurrentPrice.Value.ToDecimal();
-                //newPos.ValueBlocked = pos.Blocked / instrument.Instrument.Lot;
-                newPos.ValueBegin = pos.Quantity.Value.ToDecimal();
-                //newPos.ValueBegin = pos.Quantity.Value.ToDecimal() * pos.AveragePrice.Value.ToDecimal();
-
-                myPortfolio.SetNewPosition(newPos);
+                myPortfolio.ValueCurrent = Math.Truncate(getAccountResponse.Equity.Value.ToDecimal() * 100m) / 100m;
+                myPortfolio.UnrealizedPnl = getAccountResponse.UnrealizedProfit.Value.ToDecimal();
             }
+
+                //for (int i = 0; i < getAccountResponse.Cash.Count; i++)
+                //{
+                //    GoogleType.Money pos = getAccountResponse.Cash[i];
+                //    PositionOnBoard newPos = new PositionOnBoard();
+
+                //    newPos.PortfolioName = myPortfolio.Number;
+                //    newPos.SecurityNameCode = pos.CurrencyCode;
+                //    newPos.ValueCurrent = GetValue(pos);
+                //    //newPos.ValueBlocked = pos.Blocked / instrument.Instrument.Lot;
+                //    newPos.ValueBegin = newPos.ValueCurrent;
+
+                //    myPortfolio.SetNewPosition(newPos);
+                //}
+
+                for (int i = 0; i < getAccountResponse.Positions.Count; i++)
+                {
+                    FPosition pos = getAccountResponse.Positions[i];
+                    PositionOnBoard newPos = new PositionOnBoard();
+
+                    newPos.PortfolioName = myPortfolio.Number;
+                    newPos.SecurityNameCode = pos.Symbol;
+                    newPos.ValueCurrent = pos.Quantity.Value.ToDecimal();
+                    //newPos.ValueCurrent = pos.Quantity.Value.ToDecimal() * pos.CurrentPrice.Value.ToDecimal();
+                    //newPos.ValueBlocked = pos.Blocked / instrument.Instrument.Lot;
+                    newPos.ValueBegin = pos.Quantity.Value.ToDecimal();
+                    //newPos.ValueBegin = pos.Quantity.Value.ToDecimal() * pos.AveragePrice.Value.ToDecimal();
+
+                    myPortfolio.SetNewPosition(newPos);
+                }
 
         }
 
@@ -1782,6 +1787,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
 
             MyOrderEvent?.Invoke(order);
+            Task.Run(GetPortfolios); // Обновялем портфель, в апи нет потока с обновлениями портфеля
         }
         private Dictionary<int, OrderStateType> _processedOrders = new Dictionary<int, OrderStateType>();
 
