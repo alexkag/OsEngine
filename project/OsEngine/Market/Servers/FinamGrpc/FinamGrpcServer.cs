@@ -87,6 +87,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 _myPortfolios.Clear();
                 _subscribedSecurities.Clear();
+                _processedOrders.Clear();
+                _processedMyTrades.Clear();
 
                 SendLogMessage("Start Finam gRPC Connection", LogMessageType.System);
 
@@ -155,6 +157,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
             _dicOrderBookStreams.Clear();
             _dicLatestTradesStreams.Clear();
             _dicLastMdTime.Clear();
+            _processedOrders.Clear();
+            _processedMyTrades.Clear();
 
             SendLogMessage("Connection to Finam gRPC closed. Data streams Closed Event", LogMessageType.System);
 
@@ -529,11 +533,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
             catch (RpcException ex)
             {
                 string message = GetGRPCErrorMessage(ex);
-                SendLogMessage($"Error loading security params. Info: {message}", LogMessageType.Error);
+                SendLogMessage($"Error loading security [{security.NameId}] params. Info: {message}", LogMessageType.Error);
             }
             catch (Exception ex)
             {
-                SendLogMessage($"Error loading security params: {ex}", LogMessageType.Error);
+                SendLogMessage($"Error loading security [{security.NameId}] params: {ex}", LogMessageType.Error);
             }
 
             // Получаем доп инфо по тикеру (лимит 60 запросов в минуту)
@@ -734,7 +738,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             _gRpcMetadata.Add("Authorization", auth.Token);
         }
 
-        
+
         private Metadata _gRpcMetadata;
         private GrpcChannel _channel;
         private CancellationTokenSource _cancellationTokenSource;
@@ -775,9 +779,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
                 // Получаем недостающие данные по тикеру
                 UpdateSecurityParams(security);
-                
+
                 // Отменяем подписку, если инструмент не торгуется
-                if(security.State != SecurityStateType.Activ)
+                if (security.State != SecurityStateType.Activ)
                 {
                     SendLogMessage($"Error subscribe security {security.Name}: IS NOT TRADEABLE. Subscription skipped.", LogMessageType.Error);
                     return;
@@ -1012,12 +1016,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                             trade.Price = newTrade.Price.Value.ToString().ToDecimal();
                             trade.Time = newTrade.Timestamp.ToDateTime().AddHours(_timezoneOffset);
                             trade.Id = newTrade.TradeId;
-                            trade.Side = newTrade.Side switch
-                            {
-                                FSide.Buy => Side.Buy,
-                                FSide.Sell => Side.Sell,
-                                _ => Side.None
-                            };
+                            trade.Side = GetSide(newTrade.Side);
                             trade.Volume = newTrade.Size.Value.ToString().ToDecimal();
                             NewTradesEvent?.Invoke(trade);
                         }
@@ -1224,9 +1223,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
                             Order order = ConvertToOSEngineOrder(myOrder);
 
-                            if (order == null) continue;
+                            //if (order == null) continue;
 
-                            MyOrderEvent?.Invoke(order);
+                            InvokeMyOrderEvent(order);
+                            //MyOrderEvent?.Invoke(order);
                         }
                     }
 
@@ -1238,9 +1238,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
                             MyTrade trade = ConvertToOSEngineTrade(myTrade);
 
-                            if (trade == null) continue;
+                            //if (trade == null) continue;
 
-                            MyTradeEvent?.Invoke(trade);
+                            //MyTradeEvent?.Invoke(trade);
+                            InvokeMyTradeEvent(trade);
                         }
                     }
                 }
@@ -1287,7 +1288,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             Order myOrder = new Order();
             FOrder fOrder = orderState.Order;
-            if(int.TryParse(fOrder.ClientOrderId, out int numUser))
+            if (int.TryParse(fOrder.ClientOrderId, out int numUser))
             {
                 myOrder.NumberUser = numUser;
                 //return null;
@@ -1299,8 +1300,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
             myOrder.NumberMarket = orderState.OrderId;
             myOrder.TimeCallBack = orderState.TransactAt.ToDateTime(); // TODO Проверить
             myOrder.TimeCreate = orderState.TransactAt.ToDateTime();  // TODO Проверить
-            myOrder.Price = fOrder.LimitPrice.Value.ToDecimal();
+            if (fOrder.LimitPrice != null)
+            {
+                myOrder.Price = fOrder.LimitPrice.Value.ToDecimal();
+            }
             myOrder.Volume = fOrder.Quantity.Value.ToDecimal();
+            //myOrder.ServerType = ServerType;
             myOrder.TypeOrder = fOrder.Type switch
             {
                 OrderType.Market => OrderPriceType.Market,
@@ -1336,7 +1341,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             if (myOrder.State == OrderStateType.Done)
             {
-                myOrder.TimeDone = orderState.AcceptAt.ToDateTime();
+                myOrder.TimeDone = orderState.TransactAt.ToDateTime();
             }
 
             //if (order.TimeInForce == TimeInForce.Day)
@@ -1399,8 +1404,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     {
                         SendLogMessage($"Keep Alive stream error: {message}", LogMessageType.Error);
                     }
-                        //SetDisconnected();
-                        Thread.Sleep(1000);
+                    //SetDisconnected();
+                    Thread.Sleep(1000);
                 }
                 catch (RpcException ex)
                 {
@@ -1447,13 +1452,13 @@ namespace OsEngine.Market.Servers.FinamGrpc
             FOrder fOrder = new FOrder();
             fOrder.AccountId = _accountId;
             fOrder.Symbol = order.SecurityNameCode;
-            fOrder.Quantity = new Google.Type.Decimal { Value = order.Volume.ToString() };
-            fOrder.Side = order.Side switch { Side.Buy => FSide.Buy, Side.Sell => FSide.Sell, _ => throw new Exception("Order side is not defined!") };
+            fOrder.Quantity = new Google.Type.Decimal { Value = order.Volume.ToString().Replace(",", ".") };
+            fOrder.Side = GetFSide(order.Side);
             fOrder.ClientOrderId = order.NumberUser.ToString();
             if (order.TypeOrder == OrderPriceType.Limit)
             {
                 fOrder.Type = OrderType.Limit;
-                fOrder.LimitPrice = new Google.Type.Decimal { Value = order.Price.ToString() };
+                fOrder.LimitPrice = new Google.Type.Decimal { Value = order.Price.ToString().Replace(",", ".") };
             }
             else if (order.TypeOrder == OrderPriceType.Market)
             {
@@ -1491,7 +1496,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
             order.State = GetOrderStateType(orderState.Status);
             order.NumberMarket = orderState.OrderId;
             order.TimeCallBack = orderState.TransactAt.ToDateTime();
-            order.Price = newOrder.LimitPrice.Value.ToDecimal();
+            if (newOrder.LimitPrice != null)
+            {
+                order.Price = newOrder.LimitPrice.Value.ToDecimal();
+            }
             order.Volume = newOrder.Quantity.Value.ToDecimal();
 
             if (order.State == OrderStateType.Cancel)
@@ -1503,7 +1511,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 order.TimeDone = orderState.AcceptAt.ToDateTime();
             }
-            MyOrderEvent?.Invoke(order);
+            //MyOrderEvent?.Invoke(order);
+            InvokeMyOrderEvent(order);
         }
 
         public void GetAllActivOrders()
@@ -1515,7 +1524,13 @@ namespace OsEngine.Market.Servers.FinamGrpc
             for (int i = 0; orders != null && i < orders.Count; i++)
             {
                 if (orders[i] == null) continue;
-                MyOrderEvent?.Invoke(orders[i]);
+                if (orders[i].State == OrderStateType.Fail
+                    || orders[i].State == OrderStateType.Done
+                    || orders[i].State == OrderStateType.Cancel
+                    || orders[i].State == OrderStateType.None
+                    ) continue;
+                InvokeMyOrderEvent(orders[i]);
+                //MyOrderEvent?.Invoke(orders[i]);
             }
         }
 
@@ -1576,7 +1591,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 order.State = GetOrderStateType(orderCancelResponse.Status);
 
-                MyOrderEvent?.Invoke(order);
+                //MyOrderEvent?.Invoke(order);
+                InvokeMyOrderEvent(order);
                 return true;
             }
             return false;
@@ -1607,7 +1623,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
             Order orderUpdated = ConvertToOSEngineOrder(orderResponse);
             if (orderUpdated == null) return OrderStateType.None;
 
-            MyOrderEvent?.Invoke(orderUpdated);
+            //MyOrderEvent?.Invoke(orderUpdated);
+            InvokeMyOrderEvent(orderUpdated);
 
             return orderUpdated.State;
         }
@@ -1673,7 +1690,17 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 FSide.Buy => Side.Buy,
                 FSide.Sell => Side.Sell,
-                _ => Side.None
+                _ => throw new Exception("Order side is not defined!")
+            };
+        }
+
+        private FSide GetFSide(Side side)
+        {
+            return side switch
+            {
+                Side.Buy => FSide.Buy,
+                Side.Sell => FSide.Sell,
+                _ => throw new Exception("Order side is not defined!")
             };
         }
 
@@ -1723,10 +1750,64 @@ namespace OsEngine.Market.Servers.FinamGrpc
         //    return bigDecimal;
         //}
 
+        private void InvokeMyTradeEvent(MyTrade trade)
+        {
+            if (trade == null) return;
+            lock (_processMyTradeEventLocker)
+            {
+                // Fix Finam возвращает список нескольких последних заявок ( включая предыдущие)
+                // Выбираем только необработанные
+                MyTrade processedMyTrade;
+                if (_processedMyTrades.TryGetValue(trade.NumberTrade, out processedMyTrade))
+                {
+                    return;
+                }
+
+                _processedMyTrades.AddOrUpdate(trade.NumberTrade, trade);
+
+                MyTradeEvent?.Invoke(trade);
+            }
+        }
+        private string _processMyTradeEventLocker = "processMyTradeEventLocker";
+        private LimitedSizeDictionary<string, MyTrade> _processedMyTrades = new LimitedSizeDictionary<string, MyTrade>(5000);
+
+        private void InvokeMyOrderEvent(Order order)
+        {
+            if (order == null) return;
+            if (order.NumberUser == 0) return;
+            lock (_processMyOrderEventLocker)
+            {
+                // Fix Finam возвращает список нескольких последних заявок ( включая предыдущие)
+                // Выбираем только необработанные
+                OrderStateType processedOrderState;
+
+                if (_processedOrders.TryGetValue(order.NumberUser, out processedOrderState))
+                {
+                    if (processedOrderState == order.State
+                        // Final states
+                        || processedOrderState == OrderStateType.Done
+                        || processedOrderState == OrderStateType.Cancel
+                        || processedOrderState == OrderStateType.Fail
+
+                        )
+                    {
+                        return;
+                    }
+                }
+
+                _processedOrders.AddOrUpdate(order.NumberUser, order.State);
+
+                MyOrderEvent?.Invoke(order);
+            }
+        }
+        private string _processMyOrderEventLocker = "processMyOrderEventLocker";
+        private LimitedSizeDictionary<int, OrderStateType> _processedOrders = new LimitedSizeDictionary<int, OrderStateType>(1000);
+
         private void InvokeOrderFail(Order order)
         {
             order.State = OrderStateType.Fail;
-            MyOrderEvent?.Invoke(order);
+            InvokeMyOrderEvent(order);
+            //MyOrderEvent?.Invoke(order);
         }
 
         protected TimeSpan getHistoryDepth(FTimeFrame tf)
@@ -1787,6 +1868,99 @@ namespace OsEngine.Market.Servers.FinamGrpc
             public AsyncServerStreamingCall<SubscribeOrderBookResponse> Stream { get; set; }
             public CancellationTokenSource CancellationTokenSource { get; set; }
             public Task ReaderTask { get; set; }
+        }
+
+        public class LimitedSizeDictionary<TKey, TValue>
+        {
+            private readonly Dictionary<TKey, LinkedListNode<KeyValuePair<TKey, TValue>>> dictionary;
+            private readonly LinkedList<KeyValuePair<TKey, TValue>> linkedList;
+            private readonly int maxSize;
+
+            public LimitedSizeDictionary(int maxSize)
+            {
+                if (maxSize <= 0)
+                    throw new ArgumentException("Max size must be greater than 0", nameof(maxSize));
+
+                this.maxSize = maxSize;
+                dictionary = new Dictionary<TKey, LinkedListNode<KeyValuePair<TKey, TValue>>>();
+                linkedList = new LinkedList<KeyValuePair<TKey, TValue>>();
+            }
+
+            public void Add(TKey key, TValue value)
+            {
+                if (dictionary.TryGetValue(key, out var existingNode))
+                {
+                    // Move to end of list (most recently used)
+                    linkedList.Remove(existingNode);
+                    dictionary[key] = linkedList.AddLast(new KeyValuePair<TKey, TValue>(key, value));
+                    return;
+                }
+
+                if (dictionary.Count >= maxSize)
+                {
+                    // Remove oldest
+                    var oldest = linkedList.First;
+                    dictionary.Remove(oldest.Value.Key);
+                    linkedList.RemoveFirst();
+                }
+
+                // Add new
+                var newNode = linkedList.AddLast(new KeyValuePair<TKey, TValue>(key, value));
+                dictionary.Add(key, newNode);
+            }
+
+            public void AddOrUpdate(TKey key, TValue value)
+            {
+                if (dictionary.TryGetValue(key, out var existingNode))
+                {
+                    // Update the value
+                    existingNode.Value = new KeyValuePair<TKey, TValue>(key, value);
+
+                    // Move to end to mark as recently used (optional)
+                    linkedList.Remove(existingNode);
+                    dictionary[key] = linkedList.AddLast(existingNode.Value);
+                    return;
+                }
+
+                if (dictionary.Count >= maxSize)
+                {
+                    // Remove oldest
+                    var oldest = linkedList.First;
+                    dictionary.Remove(oldest.Value.Key);
+                    linkedList.RemoveFirst();
+                }
+
+                // Add new
+                var newNode = linkedList.AddLast(new KeyValuePair<TKey, TValue>(key, value));
+                dictionary.Add(key, newNode);
+            }
+
+            public bool TryGetValue(TKey key, out TValue value)
+            {
+                if (dictionary.TryGetValue(key, out var node))
+                {
+                    value = node.Value.Value;
+
+                    // Move to end to mark as recently used
+                    linkedList.Remove(node);
+                    dictionary[key] = linkedList.AddLast(node.Value);
+
+                    return true;
+                }
+
+                value = default;
+                return false;
+            }
+
+            public bool ContainsKey(TKey key) => dictionary.ContainsKey(key);
+
+            public int Count => dictionary.Count;
+
+            public void Clear()
+            {
+                dictionary.Clear();
+                linkedList.Clear();
+            }
         }
         #endregion
     }
