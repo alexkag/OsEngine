@@ -22,12 +22,12 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Candle = OsEngine.Entity.Candle;
+using FAsset = Grpc.Tradeapi.V1.Assets.Asset;
 using FOrder = Grpc.Tradeapi.V1.Orders.Order;
 using FPosition = Grpc.Tradeapi.V1.Accounts.Position;
 using FSide = Grpc.Tradeapi.V1.Side;
 using FTimeFrame = Grpc.Tradeapi.V1.Marketdata.TimeFrame;
 using FTrade = Grpc.Tradeapi.V1.Marketdata.Trade;
-using FAsset = Grpc.Tradeapi.V1.Assets.Asset;
 using Order = OsEngine.Entity.Order;
 using Portfolio = OsEngine.Entity.Portfolio;
 using Security = OsEngine.Entity.Security;
@@ -1277,7 +1277,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             trade.Side = GetSide(myTrade.Side);
             trade.NumberTrade = myTrade.TradeId;
             trade.NumberOrderParent = myTrade.OrderId;
-            trade.SecurityNameCode = myTrade.Symbol;
+            trade.SecurityNameCode = myTrade.Symbol; // TODO Баг АПИ (Не содержит названия биржи) "Symbol": "VTBR@MISX" - должно быть, есть "Symbol": "VTBR"
             trade.Time = myTrade.Timestamp.ToDateTime();
             return trade;
         }
@@ -1623,8 +1623,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
             Order orderUpdated = ConvertToOSEngineOrder(orderResponse);
             if (orderUpdated == null) return OrderStateType.None;
 
-            //MyOrderEvent?.Invoke(orderUpdated);
-            InvokeMyOrderEvent(orderUpdated);
+            MyOrderEvent?.Invoke(orderUpdated);
+            // Событие, не через обработчик
+            //InvokeMyOrderEvent(orderUpdated);
 
             return orderUpdated.State;
         }
@@ -1753,23 +1754,24 @@ namespace OsEngine.Market.Servers.FinamGrpc
         private void InvokeMyTradeEvent(MyTrade trade)
         {
             if (trade == null) return;
+            if (string.IsNullOrEmpty(trade.NumberOrderParent)) return;
             lock (_processMyTradeEventLocker)
             {
                 // Fix Finam возвращает список нескольких последних заявок ( включая предыдущие)
                 // Выбираем только необработанные
                 MyTrade processedMyTrade;
-                if (_processedMyTrades.TryGetValue(trade.NumberTrade, out processedMyTrade))
+                if (_processedMyTrades.Contains(trade.NumberTrade))
                 {
                     return;
                 }
 
-                _processedMyTrades.AddOrUpdate(trade.NumberTrade, trade);
+                _processedMyTrades.Add(trade.NumberTrade);
 
                 MyTradeEvent?.Invoke(trade);
             }
         }
         private string _processMyTradeEventLocker = "processMyTradeEventLocker";
-        private LimitedSizeDictionary<string, MyTrade> _processedMyTrades = new LimitedSizeDictionary<string, MyTrade>(5000);
+        private HashSet<string> _processedMyTrades = new HashSet<string>();
 
         private void InvokeMyOrderEvent(Order order)
         {
