@@ -14,6 +14,8 @@ namespace OsEngine.OsTrader.SystemAnalyze
 {
     public class SystemUsageAnalyzeMaster
     {
+        #region Service
+
         public static void Activate()
         {
             if (_worker == null)
@@ -24,10 +26,30 @@ namespace OsEngine.OsTrader.SystemAnalyze
                 _cpuUsageAnalyze = new CpuUsageAnalyze();
                 _cpuUsageAnalyze.CpuUsageCollectionChange += _cpuUsageAnalyze_CpuUsageCollectionChange;
 
+                _ecqUsageAnalyze = new EcqUsageAnalyze();
+                _ecqUsageAnalyze.EcqUsageCollectionChange += _ecqUsageAnalyze_EcqUsageCollectionChange;
+
                 _worker = new Thread(WorkMethod);
                 _worker.Start();
             }
         }
+
+        private static void _ui_Closed(object sender, EventArgs e)
+        {
+            _ui = null;
+        }
+
+        private static RamMemoryUsageAnalyze _ramMemoryUsageAnalyze;
+
+        private static CpuUsageAnalyze _cpuUsageAnalyze;
+
+        private static EcqUsageAnalyze _ecqUsageAnalyze;
+
+        #endregion
+
+        #region Settings
+
+        private static SystemAnalyzeUi _ui;
 
         public static void ShowDialog()
         {
@@ -49,18 +71,11 @@ namespace OsEngine.OsTrader.SystemAnalyze
                     _ui.Activate();
                 }
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
-                ServerMaster.SendNewLogMessage(ex.ToString(),Logging.LogMessageType.Error);
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
             }
         }
-
-        private static void _ui_Closed(object sender, EventArgs e)
-        {
-            _ui = null;
-        }
-
-        private static SystemAnalyzeUi _ui;
 
         public static bool RamCollectDataIsOn
         {
@@ -71,18 +86,6 @@ namespace OsEngine.OsTrader.SystemAnalyze
             set
             {
                 _ramMemoryUsageAnalyze.RamCollectDataIsOn = value;
-            }
-        }
-
-        public static SavePeriod RamSavePeriod
-        {
-            get
-            {
-                return _ramMemoryUsageAnalyze.RamSavePeriod;
-            }
-            set
-            {
-                _ramMemoryUsageAnalyze.RamSavePeriod = value;
             }
         }
 
@@ -98,31 +101,199 @@ namespace OsEngine.OsTrader.SystemAnalyze
             }
         }
 
-        public static SavePeriod CpuSavePeriod
+        public static bool EcqCollectDataIsOn
         {
             get
             {
-                return _cpuUsageAnalyze.CpuSavePeriod;
+                return _ecqUsageAnalyze.EcqCollectDataIsOn;
             }
             set
             {
-                _cpuUsageAnalyze.CpuSavePeriod = value;
+                _ecqUsageAnalyze.EcqCollectDataIsOn = value;
             }
         }
 
-        public static void ShowFileRamCollection()
+        public static SavePointPeriod RamPeriodSavePoint
         {
-
+            get
+            {
+                return _ramMemoryUsageAnalyze.RamPeriodSavePoint;
+            }
+            set
+            {
+                _ramMemoryUsageAnalyze.RamPeriodSavePoint = value;
+            }
         }
 
-        public static void ShowFileCpuCollection()
+        public static SavePointPeriod CpuPeriodSavePoint
         {
-
+            get
+            {
+                return _cpuUsageAnalyze.CpuPeriodSavePoint;
+            }
+            set
+            {
+                _cpuUsageAnalyze.CpuPeriodSavePoint = value;
+            }
         }
 
-        private static RamMemoryUsageAnalyze _ramMemoryUsageAnalyze;
+        public static SavePointPeriod EcqPeriodSavePoint
+        {
+            get
+            {
+                return _ecqUsageAnalyze.EcqPeriodSavePoint;
+            }
+            set
+            {
+                _ecqUsageAnalyze.EcqPeriodSavePoint = value;
+            }
+        }
 
-        private static CpuUsageAnalyze _cpuUsageAnalyze;
+        public static int RamPointsMax
+        {
+            get
+            {
+                return _ramMemoryUsageAnalyze.RamPointsMax;
+            }
+            set
+            {
+                _ramMemoryUsageAnalyze.RamPointsMax = value;
+            }
+        }
+
+        public static int CpuPointsMax
+        {
+            get
+            {
+                return _cpuUsageAnalyze.CpuPointsMax;
+            }
+            set
+            {
+                _cpuUsageAnalyze.CpuPointsMax = value;
+            }
+        }
+
+        public static int EcqPointsMax
+        {
+            get
+            {
+                return _ecqUsageAnalyze.EcqPointsMax;
+            }
+            set
+            {
+                _ecqUsageAnalyze.EcqPointsMax = value;
+            }
+        }
+
+        #endregion
+
+        #region Data
+
+        public static List<SystemUsagePointRam> ValuesRam
+        {
+            get
+            {
+                return _ramMemoryUsageAnalyze.Values;
+            }
+        }
+
+        public static List<SystemUsagePointCpu> ValuesCpu
+        {
+            get
+            {
+                return _cpuUsageAnalyze.Values;
+            }
+        }
+
+        public static List<SystemUsagePointEcq> ValuesEcq
+        {
+            get
+            {
+                return _ecqUsageAnalyze.Values;
+            }
+        }
+
+        public static SystemUsagePointRam LastValueRam
+        {
+            get
+            {
+                List < SystemUsagePointRam > values = _ramMemoryUsageAnalyze.Values;
+
+                if(values != null 
+                    && values.Count > 0)
+                {
+                    return values[^1];
+                }
+                else
+                {
+                    return null;
+                }
+            }
+        }
+
+        public static SystemUsagePointCpu LastValueCpu
+        {
+            get
+            {
+                List<SystemUsagePointCpu> values = _cpuUsageAnalyze.Values;
+
+                if (values != null
+                    && values.Count > 0)
+                {
+                    return values[^1];
+                }
+                else
+                {
+                    return null;
+                }
+            }
+        }
+
+        public static SystemUsagePointEcq LastValueEcq
+        {
+            get
+            {
+                List<SystemUsagePointEcq> values = _ecqUsageAnalyze.Values;
+
+                if (values != null
+                    && values.Count > 0)
+                {
+                    return values[^1];
+                }
+                else
+                {
+                    return null;
+                }
+            }
+        }
+
+        public static int MarketDepthClearingCount
+        {
+            get
+            {
+                return _ecqUsageAnalyze.MarketDepthClearingCount;
+            }
+            set
+            {
+                _ecqUsageAnalyze.MarketDepthClearingCount = value;
+            }
+        }
+
+        public static int BidAskClearingCount
+        {
+            get
+            {
+                return _ecqUsageAnalyze.BidAskClearingCount;
+            }
+            set
+            {
+                _ecqUsageAnalyze.BidAskClearingCount = value;
+            }
+        }
+
+        #endregion
+
+        #region Work thread
 
         private static Thread _worker;
 
@@ -137,10 +308,11 @@ namespace OsEngine.OsTrader.SystemAnalyze
                         return;
                     }
 
-                    Thread.Sleep(10000);
+                    Thread.Sleep(1000);
 
                     _ramMemoryUsageAnalyze.CalculateData();
                     _cpuUsageAnalyze.CalculateData();
+                    _ecqUsageAnalyze.CalculateData();
                 }
                 catch(Exception ex)
                 {
@@ -149,7 +321,11 @@ namespace OsEngine.OsTrader.SystemAnalyze
             }
         }
 
-        private static void _ramMemoryUsageAnalyze_RamUsageCollectionChange(List<SystemUsagePoint> values)
+        #endregion
+
+        #region Events
+
+        private static void _ramMemoryUsageAnalyze_RamUsageCollectionChange(List<SystemUsagePointRam> values)
         {
             try
             {
@@ -164,7 +340,7 @@ namespace OsEngine.OsTrader.SystemAnalyze
             }
         }
 
-        private static void _cpuUsageAnalyze_CpuUsageCollectionChange(List<SystemUsagePoint> values)
+        private static void _cpuUsageAnalyze_CpuUsageCollectionChange(List<SystemUsagePointCpu> values)
         {
             try
             {
@@ -179,15 +355,34 @@ namespace OsEngine.OsTrader.SystemAnalyze
             }
         }
 
-        public static event Action<List<SystemUsagePoint>> RamUsageCollectionChange;
+        private static void _ecqUsageAnalyze_EcqUsageCollectionChange(List<SystemUsagePointEcq> values)
+        {
+            try
+            {
+                if (EcqUsageCollectionChange != null)
+                {
+                    EcqUsageCollectionChange(values);
+                }
+            }
+            catch (Exception ex)
+            {
+                ServerMaster.SendNewLogMessage(ex.ToString(), Logging.LogMessageType.Error);
+            }
+        }
 
-        public static event Action<List<SystemUsagePoint>> CpuUsageCollectionChange;
+        public static event Action<List<SystemUsagePointRam>> RamUsageCollectionChange;
+
+        public static event Action<List<SystemUsagePointCpu>> CpuUsageCollectionChange;
+
+        public static event Action<List<SystemUsagePointEcq>> EcqUsageCollectionChange;
+
+        #endregion
 
     }
 
     public class RamMemoryUsageAnalyze
     {
-        public List<SystemUsagePoint> Values = new List<SystemUsagePoint>();
+        public List<SystemUsagePointRam> Values = new List<SystemUsagePointRam>();
 
         public RamMemoryUsageAnalyze()
         {
@@ -206,8 +401,8 @@ namespace OsEngine.OsTrader.SystemAnalyze
                 using (StreamReader reader = new StreamReader(@"Engine\SystemStress\RamMemorySettings.txt"))
                 {
                     _ramCollectDataIsOn = Convert.ToBoolean(reader.ReadLine());
-                    Enum.TryParse(reader.ReadLine(), out _ramSavePeriod);
-
+                    Enum.TryParse(reader.ReadLine(), out _ramPeriodSavePoint);
+                    _ramPointsMax = Convert.ToInt32(reader.ReadLine());
                     reader.Close();
                 }
             }
@@ -229,8 +424,8 @@ namespace OsEngine.OsTrader.SystemAnalyze
                 using (StreamWriter writer = new StreamWriter(@"Engine\SystemStress\RamMemorySettings.txt", false))
                 {
                     writer.WriteLine(_ramCollectDataIsOn);
-                    writer.WriteLine(_ramSavePeriod);
-
+                    writer.WriteLine(_ramPeriodSavePoint);
+                    writer.WriteLine(_ramPointsMax);
                     writer.Close();
                 }
             }
@@ -259,31 +454,71 @@ namespace OsEngine.OsTrader.SystemAnalyze
         }
         private bool _ramCollectDataIsOn;
 
-        public SavePeriod RamSavePeriod
+        public SavePointPeriod RamPeriodSavePoint
         {
             get
             {
-                return _ramSavePeriod;
+                return _ramPeriodSavePoint;
             }
             set
             {
-                if (_ramSavePeriod == value)
+                if (_ramPeriodSavePoint == value)
                 {
                     return;
                 }
 
-                _ramSavePeriod = value;
+                _ramPeriodSavePoint = value;
+                Save();
+                _nextCalculateTime = DateTime.MinValue;
+            }
+        }
+        private SavePointPeriod _ramPeriodSavePoint;
+
+        public int RamPointsMax
+        {
+            get
+            {
+                return _ramPointsMax;
+            }
+            set
+            {
+                if (_ramPointsMax == value)
+                {
+                    return;
+                }
+
+                _ramPointsMax = value;
                 Save();
             }
         }
+        private int _ramPointsMax = 100;
 
-        private SavePeriod _ramSavePeriod;
+        private DateTime _nextCalculateTime;
 
         public void CalculateData()
         {
             if(_ramCollectDataIsOn == false)
             {
                 return;
+            }
+
+            if(_nextCalculateTime != DateTime.MinValue
+                && _nextCalculateTime > DateTime.Now)
+            {
+                return;
+            }
+
+            if(_ramPeriodSavePoint == SavePointPeriod.OneSecond)
+            {
+                _nextCalculateTime = DateTime.Now.AddSeconds(1);
+            }
+            else if (_ramPeriodSavePoint == SavePointPeriod.TenSeconds)
+            {
+                _nextCalculateTime = DateTime.Now.AddSeconds(10);
+            }
+            else //if (_ramPeriodSavePoint == SavePointPeriod.Minute)
+            {
+                _nextCalculateTime = DateTime.Now.AddSeconds(60);
             }
 
             // 1 текущий размер программы в оперативной памяти
@@ -302,13 +537,25 @@ namespace OsEngine.OsTrader.SystemAnalyze
             ulong freeRam = info.AvailablePhysicalMemory;
             int freeMegabytes = Convert.ToInt32(freeRam / 1024);
 
-            SystemUsagePoint newPoint = new SystemUsagePoint();
+            decimal osEngineOccupiedPercent = Math.Round(Convert.ToDecimal(Convert.ToDecimal(myMegaBytes) / (maxMegabytes / 100)), 2);
+            decimal totalOccupiedPercent = Math.Round(Convert.ToDecimal((Convert.ToDecimal(maxMegabytes) - freeMegabytes) / (maxMegabytes / 100)), 2);
+
+            SystemUsagePointRam newPoint = new SystemUsagePointRam();
             newPoint.Time = DateTime.Now;
-            newPoint.ProgramUsed = myMegaBytes;
-            newPoint.SystemMax = maxMegabytes;
-            newPoint.SystemFree = freeRam;
+            newPoint.ProgramUsedPercent = osEngineOccupiedPercent;
+            newPoint.SystemUsedPercent = totalOccupiedPercent;
 
             SaveNewPoint(newPoint);
+        }
+
+        private void SaveNewPoint(SystemUsagePointRam point)
+        {
+            Values.Add(point);
+
+            if(Values.Count > _ramPointsMax)
+            {
+                Values.RemoveAt(0);
+            }
 
             if (RamUsageCollectionChange != null)
             {
@@ -316,18 +563,12 @@ namespace OsEngine.OsTrader.SystemAnalyze
             }
         }
 
-        private void SaveNewPoint(SystemUsagePoint point)
-        {
-
-            Values.Add(point);
-        }
-
-        public event Action<List<SystemUsagePoint>> RamUsageCollectionChange;
+        public event Action<List<SystemUsagePointRam>> RamUsageCollectionChange;
     }
 
     public class CpuUsageAnalyze
     {
-        public List<SystemUsagePoint> Values = new List<SystemUsagePoint>();
+        public List<SystemUsagePointCpu> Values = new List<SystemUsagePointCpu>();
 
         public CpuUsageAnalyze()
         {
@@ -346,8 +587,8 @@ namespace OsEngine.OsTrader.SystemAnalyze
                 using (StreamReader reader = new StreamReader(@"Engine\SystemStress\CpuMemorySettings.txt"))
                 {
                     _cpuCollectDataIsOn = Convert.ToBoolean(reader.ReadLine());
-                    Enum.TryParse(reader.ReadLine(), out _cpuSavePeriod);
-
+                    Enum.TryParse(reader.ReadLine(), out _cpuPeriodSavePoint);
+                    _cpuPointsMax = Convert.ToInt32(reader.ReadLine());
                     reader.Close();
                 }
             }
@@ -369,8 +610,8 @@ namespace OsEngine.OsTrader.SystemAnalyze
                 using (StreamWriter writer = new StreamWriter(@"Engine\SystemStress\CpuMemorySettings.txt", false))
                 {
                     writer.WriteLine(_cpuCollectDataIsOn);
-                    writer.WriteLine(_cpuSavePeriod);
-
+                    writer.WriteLine(_cpuPeriodSavePoint);
+                    writer.WriteLine(_cpuPointsMax);
                     writer.Close();
                 }
             }
@@ -399,25 +640,46 @@ namespace OsEngine.OsTrader.SystemAnalyze
         }
         private bool _cpuCollectDataIsOn;
 
-        public SavePeriod CpuSavePeriod
+        public SavePointPeriod CpuPeriodSavePoint
         {
             get
             {
-                return _cpuSavePeriod;
+                return _cpuPeriodSavePoint;
             }
             set
             {
-                if (_cpuSavePeriod == value)
+                if (_cpuPeriodSavePoint == value)
                 {
                     return;
                 }
 
-                _cpuSavePeriod = value;
+                _cpuPeriodSavePoint = value;
+                Save();
+                _nextCalculateTime = DateTime.MinValue;
+            }
+        }
+        private SavePointPeriod _cpuPeriodSavePoint;
+
+        public int CpuPointsMax
+        {
+            get
+            {
+                return _cpuPointsMax;
+            }
+            set
+            {
+                if (_cpuPointsMax == value)
+                {
+                    return;
+                }
+
+                _cpuPointsMax = value;
                 Save();
             }
         }
+        private int _cpuPointsMax = 100;
 
-        private SavePeriod _cpuSavePeriod;
+        private DateTime _nextCalculateTime;
 
         public void CalculateData()
         {
@@ -426,26 +688,290 @@ namespace OsEngine.OsTrader.SystemAnalyze
                 return;
             }
 
+            if (_nextCalculateTime != DateTime.MinValue
+                && _nextCalculateTime > DateTime.Now)
+            {
+                return;
+            }
+
+            if (_cpuPeriodSavePoint == SavePointPeriod.OneSecond)
+            {
+                _nextCalculateTime = DateTime.Now.AddSeconds(1);
+            }
+            else if (_cpuPeriodSavePoint == SavePointPeriod.TenSeconds)
+            {
+                _nextCalculateTime = DateTime.Now.AddSeconds(10);
+            }
+            else //if (_cpuPeriodSavePoint == SavePointPeriod.Minute)
+            {
+                _nextCalculateTime = DateTime.Now.AddSeconds(60);
+            }
+
+            if(_cpuCounterTotal == null)
+            {
+                _cpuCounterTotal = new PerformanceCounter("Processor", "% Processor Time", "_Total");
+                _cpuCounterOsEngine = new PerformanceCounter("Process", "% Processor Time", "OsEngine");
+            }
+           
+            SystemUsagePointCpu newPoint = new SystemUsagePointCpu();
+            newPoint.Time = DateTime.Now;
+            newPoint.TotalOccupiedPercent = Math.Round(Convert.ToDecimal(_cpuCounterTotal.NextValue()),3);
+            newPoint.ProgramOccupiedPercent = Math.Round(Convert.ToDecimal(_cpuCounterOsEngine.NextValue() / Environment.ProcessorCount), 3);
+
+            SaveNewPoint(newPoint);
         }
 
-        public event Action<List<SystemUsagePoint>> CpuUsageCollectionChange;
+        private PerformanceCounter _cpuCounterTotal;
+
+        private PerformanceCounter _cpuCounterOsEngine;
+
+        private void SaveNewPoint(SystemUsagePointCpu point)
+        {
+            Values.Add(point);
+
+            if (Values.Count > _cpuPointsMax)
+            {
+                Values.RemoveAt(0);
+            }
+
+            if (CpuUsageCollectionChange != null)
+            {
+                CpuUsageCollectionChange(Values);
+            }
+        }
+
+        public event Action<List<SystemUsagePointCpu>> CpuUsageCollectionChange;
     }
 
-    public class SystemUsagePoint
+    public class EcqUsageAnalyze
+    {
+        public List<SystemUsagePointEcq> Values = new List<SystemUsagePointEcq>();
+
+        public EcqUsageAnalyze()
+        {
+            Load();
+        }
+
+        private void Load()
+        {
+            try
+            {
+                if (!File.Exists(@"Engine\SystemStress\EcqMemorySettings.txt"))
+                {
+                    return;
+                }
+
+                using (StreamReader reader = new StreamReader(@"Engine\SystemStress\EcqMemorySettings.txt"))
+                {
+                    _ecqCollectDataIsOn = Convert.ToBoolean(reader.ReadLine());
+                    Enum.TryParse(reader.ReadLine(), out _ecqPeriodSavePoint);
+                    _ecqPointsMax = Convert.ToInt32(reader.ReadLine());
+                    reader.Close();
+                }
+            }
+            catch (Exception)
+            {
+                // ignore
+            }
+        }
+
+        private void Save()
+        {
+            try
+            {
+                if (Directory.Exists("Engine\\SystemStress") == false)
+                {
+                    Directory.CreateDirectory("Engine\\SystemStress");
+                }
+
+                using (StreamWriter writer = new StreamWriter(@"Engine\SystemStress\EcqMemorySettings.txt", false))
+                {
+                    writer.WriteLine(_ecqCollectDataIsOn);
+                    writer.WriteLine(_ecqPeriodSavePoint);
+                    writer.WriteLine(_ecqPointsMax);
+
+                    writer.Close();
+                }
+            }
+            catch (Exception)
+            {
+                // ignore
+            }
+        }
+
+        public bool EcqCollectDataIsOn
+        {
+            get
+            {
+                return _ecqCollectDataIsOn;
+            }
+            set
+            {
+                if (_ecqCollectDataIsOn == value)
+                {
+                    return;
+                }
+
+                _ecqCollectDataIsOn = value;
+                Save();
+            }
+        }
+        private bool _ecqCollectDataIsOn;
+
+        public SavePointPeriod EcqPeriodSavePoint
+        {
+            get
+            {
+                return _ecqPeriodSavePoint;
+            }
+            set
+            {
+                if (_ecqPeriodSavePoint == value)
+                {
+                    return;
+                }
+
+                _ecqPeriodSavePoint = value;
+                Save();
+                _nextCalculateTime = DateTime.MinValue;
+            }
+        }
+        private SavePointPeriod _ecqPeriodSavePoint;
+
+        public int EcqPointsMax
+        {
+            get
+            {
+                return _ecqPointsMax;
+            }
+            set
+            {
+                if (_ecqPointsMax == value)
+                {
+                    return;
+                }
+
+                _ecqPointsMax = value;
+                Save();
+            }
+        }
+        private int _ecqPointsMax = 100;
+
+        public int MarketDepthClearingCount
+        {
+            get
+            {
+                return _marketDepthClearingCount;
+            }
+            set
+            {
+                _marketDepthClearingCount = value;
+            }
+        }
+        private int _marketDepthClearingCount;
+
+        public int BidAskClearingCount
+        {
+            get
+            {
+                return _bidAskClearingCount;
+            }
+            set
+            {
+                _bidAskClearingCount = value;
+            }
+        }
+        private int _bidAskClearingCount;
+
+        private DateTime _nextCalculateTime;
+
+        public void CalculateData()
+        {
+            if (_ecqCollectDataIsOn == false)
+            {
+                return;
+            }
+
+            if (_nextCalculateTime != DateTime.MinValue
+                && _nextCalculateTime > DateTime.Now)
+            {
+                return;
+            }
+
+            if (_ecqPeriodSavePoint == SavePointPeriod.OneSecond)
+            {
+                _nextCalculateTime = DateTime.Now.AddSeconds(1);
+            }
+            else if (_ecqPeriodSavePoint == SavePointPeriod.TenSeconds)
+            {
+                _nextCalculateTime = DateTime.Now.AddSeconds(10);
+            }
+            else //if (_cpuPeriodSavePoint == SavePointPeriod.Minute)
+            {
+                _nextCalculateTime = DateTime.Now.AddSeconds(60);
+            }
+
+            SystemUsagePointEcq newPoint = new SystemUsagePointEcq();
+            newPoint.Time = DateTime.Now;
+            newPoint.MarketDepthClearingCount = _marketDepthClearingCount;
+            newPoint.BidAskClearingCount = _bidAskClearingCount;
+
+            _marketDepthClearingCount = 0;
+            _bidAskClearingCount = 0;
+
+            SaveNewPoint(newPoint);
+        }
+
+        private void SaveNewPoint(SystemUsagePointEcq point)
+        {
+            Values.Add(point);
+
+            if (Values.Count > _ecqPointsMax)
+            {
+                Values.RemoveAt(0);
+            }
+
+            if (EcqUsageCollectionChange != null)
+            {
+                EcqUsageCollectionChange(Values);
+            }
+        }
+
+        public event Action<List<SystemUsagePointEcq>> EcqUsageCollectionChange;
+    }
+
+
+    public class SystemUsagePointRam
     {
         public DateTime Time;
 
-        public decimal ProgramUsed;
+        public decimal ProgramUsedPercent;
 
-        public decimal SystemMax;
-
-        public decimal SystemFree;
+        public decimal SystemUsedPercent;
     }
 
-    public enum SavePeriod
+    public class SystemUsagePointCpu
     {
-        OneHour,
-        OneDay,
-        FiveDays
+        public DateTime Time;
+
+        public decimal ProgramOccupiedPercent;
+
+        public decimal TotalOccupiedPercent;
+    }
+
+    public class SystemUsagePointEcq
+    {
+        public DateTime Time;
+
+        public decimal MarketDepthClearingCount;
+
+        public decimal BidAskClearingCount;
+    }
+
+    public enum SavePointPeriod
+    {
+        OneSecond,
+        TenSeconds,
+        Minute
     }
 }
