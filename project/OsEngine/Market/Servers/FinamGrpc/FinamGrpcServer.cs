@@ -339,9 +339,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
                 newPos.PortfolioName = myPortfolio.Number;
                 newPos.SecurityNameCode = pos.Symbol; // TODO проверить
-                newPos.ValueCurrent = pos.Quantity.Value.ToDecimal() * pos.CurrentPrice.Value.ToDecimal();
+                newPos.ValueCurrent = pos.Quantity.Value.ToDecimal();
+                //newPos.ValueCurrent = pos.Quantity.Value.ToDecimal() * pos.CurrentPrice.Value.ToDecimal();
                 //newPos.ValueBlocked = pos.Blocked / instrument.Instrument.Lot;
-                newPos.ValueBegin = pos.Quantity.Value.ToDecimal() * pos.AveragePrice.Value.ToDecimal();
+                newPos.ValueBegin = pos.Quantity.Value.ToDecimal();
+                //newPos.ValueBegin = pos.Quantity.Value.ToDecimal() * pos.AveragePrice.Value.ToDecimal();
 
                 myPortfolio.SetNewPosition(newPos);
             }
@@ -1314,25 +1316,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
             };
 
             Security security = GetSecurity(fOrder.Symbol);
-            myOrder.SecurityNameCode = security.Name;
-            myOrder.SecurityClassCode = security.NameClass; // TODO Проверить
+            myOrder.SecurityNameCode = security?.Name ?? fOrder.Symbol;
+            myOrder.SecurityClassCode = security.NameClass;
             myOrder.Side = GetSide(fOrder.Side);
             myOrder.State = GetOrderStateType(orderState.Status);
-            //    orderState.Status switch
-            //{
-            //    OrderStatus.Canceled => OrderStateType.Cancel,
-            //    OrderStatus.Expired => OrderStateType.Cancel, // По смыслу подходит? или fail
-            //    OrderStatus.Executed => OrderStateType.Done,
-            //    OrderStatus.New => OrderStateType.Active,
-            //    OrderStatus.PendingNew => OrderStateType.Pending,
-            //    OrderStatus.Filled => OrderStateType.Done,
-            //    OrderStatus.PartiallyFilled => OrderStateType.Partial,
-            //    OrderStatus.Rejected => OrderStateType.Fail,
-            //    OrderStatus.RejectedByExchange => OrderStateType.Fail,
-            //    OrderStatus.DeniedByBroker => OrderStateType.Fail,
-            //    OrderStatus.Failed => OrderStateType.Fail,
-            //    _ => OrderStateType.None
-            //};
 
             if (myOrder.State == OrderStateType.Cancel)
             {
@@ -1475,7 +1462,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 string message = GetGRPCErrorMessage(ex);
                 SendLogMessage($"Error place order. Info: {message}", LogMessageType.Error);
-                order.Comment = message;
+                //order.Comment = message;
                 InvokeOrderFail(order);
                 return;
             }
@@ -1536,6 +1523,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         private List<Order> GetAllActiveOrdersFromExchange()
         {
+            while (_securities == null || _securities.Count == 0)
+            {
+                Task.Delay(50);
+            }
+
             OrdersResponse ordersResponse = null;
             _rateGateMyOrderTradeGetOrders.WaitToProceed();
             try
@@ -1653,6 +1645,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 Order order = orders[i];
 
+                if (order == null) continue;
+
                 if (order.State == OrderStateType.Active
                     && order.SecurityNameCode == security.Name)
                 {
@@ -1737,73 +1731,60 @@ namespace OsEngine.Market.Servers.FinamGrpc
             return null;
         }
 
-        //public decimal GetValue(GoogleType.Money moneyValue)
-        //{
-        //    if (moneyValue == null)
-        //        return 0.0m;
-
-        //    if (moneyValue.Units == 0 && moneyValue.Nanos == 0)
-        //        return 0.0m;
-
-        //    decimal bigDecimal = Convert.ToDecimal(moneyValue.Units);
-        //    bigDecimal += Convert.ToDecimal(moneyValue.Nanos) / 10000000; // У Финама nano = 10-7
-
-        //    return bigDecimal;
-        //}
 
         private void InvokeMyTradeEvent(MyTrade trade)
         {
             if (trade == null) return;
             if (string.IsNullOrEmpty(trade.NumberOrderParent)) return;
-            lock (_processMyTradeEventLocker)
+            // Fix Finam возвращает список всех трейдов за день
+            // Выбираем только ещё необработанные
+            MyTrade processedMyTrade;
+            if (_processedMyTrades.Contains(trade.NumberTrade))
             {
-                // Fix Finam возвращает список нескольких последних заявок ( включая предыдущие)
-                // Выбираем только необработанные
-                MyTrade processedMyTrade;
-                if (_processedMyTrades.Contains(trade.NumberTrade))
-                {
-                    return;
-                }
-
-                _processedMyTrades.Add(trade.NumberTrade);
-
-                MyTradeEvent?.Invoke(trade);
+                return;
             }
+
+            _processedMyTrades.Add(trade.NumberTrade);
+
+            MyTradeEvent?.Invoke(trade);
         }
-        private string _processMyTradeEventLocker = "processMyTradeEventLocker";
         private HashSet<string> _processedMyTrades = new HashSet<string>();
 
         private void InvokeMyOrderEvent(Order order)
         {
             if (order == null) return;
             if (order.NumberUser == 0) return;
-            lock (_processMyOrderEventLocker)
+            // Fix Finam возвращает список всех заявок за день
+            // Выбираем только ещё необработанные
+            OrderStateType processedOrderState;
+
+            if (_processedOrders.TryGetValue(order.NumberUser, out processedOrderState))
             {
-                // Fix Finam возвращает список нескольких последних заявок ( включая предыдущие)
-                // Выбираем только необработанные
-                OrderStateType processedOrderState;
+                if (processedOrderState == order.State
+                    // Final states
+                    || processedOrderState == OrderStateType.Done
+                    || processedOrderState == OrderStateType.Cancel
+                    || processedOrderState == OrderStateType.Fail
 
-                if (_processedOrders.TryGetValue(order.NumberUser, out processedOrderState))
+                    )
                 {
-                    if (processedOrderState == order.State
-                        // Final states
-                        || processedOrderState == OrderStateType.Done
-                        || processedOrderState == OrderStateType.Cancel
-                        || processedOrderState == OrderStateType.Fail
-
-                        )
-                    {
-                        return;
-                    }
+                    return;
                 }
-
-                _processedOrders.AddOrUpdate(order.NumberUser, order.State);
-
-                MyOrderEvent?.Invoke(order);
             }
+
+            if (_processedOrders.ContainsKey(order.NumberUser))
+            {
+                _processedOrders[order.NumberUser] = order.State;
+            }
+            else
+            {
+                _processedOrders.Add(order.NumberUser, order.State);
+            }
+
+            MyOrderEvent?.Invoke(order);
         }
-        private string _processMyOrderEventLocker = "processMyOrderEventLocker";
-        private LimitedSizeDictionary<int, OrderStateType> _processedOrders = new LimitedSizeDictionary<int, OrderStateType>(1000);
+        private Dictionary<int, OrderStateType> _processedOrders = new Dictionary<int, OrderStateType>();
+        //private LimitedSizeDictionary<int, OrderStateType> _processedOrders = new LimitedSizeDictionary<int, OrderStateType>(1000);
 
         private void InvokeOrderFail(Order order)
         {
