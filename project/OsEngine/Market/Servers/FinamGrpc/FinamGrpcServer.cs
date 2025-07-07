@@ -1784,7 +1784,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
             MyOrderEvent?.Invoke(order);
         }
         private Dictionary<int, OrderStateType> _processedOrders = new Dictionary<int, OrderStateType>();
-        //private LimitedSizeDictionary<int, OrderStateType> _processedOrders = new LimitedSizeDictionary<int, OrderStateType>(1000);
 
         private void InvokeOrderFail(Order order)
         {
@@ -1853,98 +1852,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             public Task ReaderTask { get; set; }
         }
 
-        public class LimitedSizeDictionary<TKey, TValue>
-        {
-            private readonly Dictionary<TKey, LinkedListNode<KeyValuePair<TKey, TValue>>> dictionary;
-            private readonly LinkedList<KeyValuePair<TKey, TValue>> linkedList;
-            private readonly int maxSize;
-
-            public LimitedSizeDictionary(int maxSize)
-            {
-                if (maxSize <= 0)
-                    throw new ArgumentException("Max size must be greater than 0", nameof(maxSize));
-
-                this.maxSize = maxSize;
-                dictionary = new Dictionary<TKey, LinkedListNode<KeyValuePair<TKey, TValue>>>();
-                linkedList = new LinkedList<KeyValuePair<TKey, TValue>>();
-            }
-
-            public void Add(TKey key, TValue value)
-            {
-                if (dictionary.TryGetValue(key, out var existingNode))
-                {
-                    // Move to end of list (most recently used)
-                    linkedList.Remove(existingNode);
-                    dictionary[key] = linkedList.AddLast(new KeyValuePair<TKey, TValue>(key, value));
-                    return;
-                }
-
-                if (dictionary.Count >= maxSize)
-                {
-                    // Remove oldest
-                    var oldest = linkedList.First;
-                    dictionary.Remove(oldest.Value.Key);
-                    linkedList.RemoveFirst();
-                }
-
-                // Add new
-                var newNode = linkedList.AddLast(new KeyValuePair<TKey, TValue>(key, value));
-                dictionary.Add(key, newNode);
-            }
-
-            public void AddOrUpdate(TKey key, TValue value)
-            {
-                if (dictionary.TryGetValue(key, out var existingNode))
-                {
-                    // Update the value
-                    existingNode.Value = new KeyValuePair<TKey, TValue>(key, value);
-
-                    // Move to end to mark as recently used (optional)
-                    linkedList.Remove(existingNode);
-                    dictionary[key] = linkedList.AddLast(existingNode.Value);
-                    return;
-                }
-
-                if (dictionary.Count >= maxSize)
-                {
-                    // Remove oldest
-                    var oldest = linkedList.First;
-                    dictionary.Remove(oldest.Value.Key);
-                    linkedList.RemoveFirst();
-                }
-
-                // Add new
-                var newNode = linkedList.AddLast(new KeyValuePair<TKey, TValue>(key, value));
-                dictionary.Add(key, newNode);
-            }
-
-            public bool TryGetValue(TKey key, out TValue value)
-            {
-                if (dictionary.TryGetValue(key, out var node))
-                {
-                    value = node.Value.Value;
-
-                    // Move to end to mark as recently used
-                    linkedList.Remove(node);
-                    dictionary[key] = linkedList.AddLast(node.Value);
-
-                    return true;
-                }
-
-                value = default;
-                return false;
-            }
-
-            public bool ContainsKey(TKey key) => dictionary.ContainsKey(key);
-
-            public int Count => dictionary.Count;
-
-            public void Clear()
-            {
-                dictionary.Clear();
-                linkedList.Clear();
-            }
-        }
+       
         #endregion
     }
 }
