@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Your rights to use code governed by this license https://github.com/AlexWan/OsEngine/blob/master/LICENSE
  * Ваши права на использование кода регулируются данной лицензией http://o-s-a.net/doc/license_simple_engine.pdf
 */
@@ -1324,6 +1324,11 @@ namespace OsEngine.OsTrader.Panels.Tab
                 }
                 else
                 {
+                    if (_ui.WindowState == System.Windows.WindowState.Minimized)
+                    {
+                        _ui.WindowState = System.Windows.WindowState.Normal;
+                    }
+
                     _ui.Activate();
                 }
             }
@@ -2605,6 +2610,8 @@ namespace OsEngine.OsTrader.Panels.Tab
                 {
                     CandleFinishedEvent(candles, tab);
                 }
+
+                SynchFinishCandlesMethod(candles, tab);
             };
 
             tab.CandleUpdateEvent += (List<Candle> candles) =>
@@ -2729,7 +2736,7 @@ namespace OsEngine.OsTrader.Panels.Tab
         public event Action<BotTabSimple> NewTabCreateEvent;
 
         /// <summary>
-        /// Last candle finishede
+        /// Last candle finished
         /// </summary>
         public event Action<List<Candle>, BotTabSimple> CandleFinishedEvent;
 
@@ -2814,6 +2821,64 @@ namespace OsEngine.OsTrader.Panels.Tab
         public event Action TabDeletedEvent;
 
         #endregion
+
+        #region Synch finish candles Event
+
+        private void SynchFinishCandlesMethod(List<Candle> candles, BotTabSimple tab)
+        {
+            try
+            {
+                if (CandlesSyncFinishedEvent == null)
+                {
+                    return;
+                }
+
+                if (candles == null || candles.Count == 0)
+                {
+                    return;
+                }
+
+                DateTime candleTime = candles[^1].TimeStart;
+
+                // 1 смотрим чтобы по всем источникам в завершённых свечках было одно время
+
+                for (int i = 0; i < Tabs.Count; i++)
+                {
+                    BotTabSimple tabCurrent = Tabs[i];
+
+                    List<Candle> candlesCurrent = tabCurrent.CandlesFinishedOnly;
+
+                    if (candlesCurrent == null
+                        || candlesCurrent.Count == 0)
+                    {
+                        return;
+                    }
+
+                    DateTime candleCurrentTime = candlesCurrent[^1].TimeStart;
+
+                    if (candleCurrentTime != candleTime)
+                    {
+                        return;
+                    }
+                }
+
+                // 2 выбрасываем событие
+
+                CandlesSyncFinishedEvent(Tabs);
+            }
+            catch (Exception ex)
+            {
+                SendNewLogMessage(ex.ToString(), LogMessageType.Error);
+            }
+        }
+
+        /// <summary>
+        /// Candles have finished for all screener sources.
+        /// </summary>
+        public event Action<List<BotTabSimple>> CandlesSyncFinishedEvent;
+
+        #endregion
+
     }
 
     /// <summary>

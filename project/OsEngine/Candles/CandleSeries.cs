@@ -219,7 +219,6 @@ namespace OsEngine.Entity
             if (CandlesAll != null)
             {
                 CandlesAll.Clear();
-                CandlesAll = null;
             }
         }
 

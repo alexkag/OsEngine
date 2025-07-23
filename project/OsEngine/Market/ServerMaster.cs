@@ -1,4 +1,4 @@
-﻿/*
+/*
  *Your rights to use the code are governed by this license https://github.com/AlexWan/OsEngine/blob/master/LICENSE
  *Ваши права на использование кода регулируются данной лицензией http://o-s-a.net/doc/license_simple_engine.pdf
 */
@@ -80,7 +80,8 @@ using OsEngine.Market.Servers.BloFin;
 using OsEngine.Market.Servers.TelegramNews;
 using OsEngine.Market.Servers.Bitfinex.BitfinexFutures;
 using OsEngine.Market.Servers.FinamGrpc;
-
+using OsEngine.Market.Servers.BinanceData;
+using OsEngine.Market.AutoFollow;
 
 namespace OsEngine.Market
 {
@@ -120,6 +121,11 @@ namespace OsEngine.Market
             }
             else
             {
+                if (_ui.WindowState == System.Windows.WindowState.Minimized)
+                {
+                    _ui.WindowState = System.Windows.WindowState.Normal;
+                }
+
                 _ui.Activate();
             }
         }
@@ -327,6 +333,7 @@ namespace OsEngine.Market
                 serverTypes.Add(ServerType.AExchange);
                 serverTypes.Add(ServerType.BloFinFutures);
                 serverTypes.Add(ServerType.TelegramNews);
+                serverTypes.Add(ServerType.BinanceData);
 
                 // а теперь сортируем в зависимости от предпочтений пользователя
 
@@ -432,6 +439,7 @@ namespace OsEngine.Market
                 serverTypes.Add(ServerType.Polygon);
                 serverTypes.Add(ServerType.CoinExSpot);
                 serverTypes.Add(ServerType.CoinExFutures);
+                serverTypes.Add(ServerType.BinanceData);
 
                 return serverTypes;
             }
@@ -526,6 +534,10 @@ namespace OsEngine.Market
 
                 IServer newServer = null;
 
+                if (type == ServerType.BinanceData)
+                {
+                    newServer = new BinanceDataServer();
+                }
                 if (type == ServerType.TelegramNews)
                 {
                     newServer = new TelegramNewsServer();
@@ -1527,6 +1539,10 @@ namespace OsEngine.Market
                 {
                     serverPermission = new TelegramNewsServerPermission();
                 }
+                else if (type == ServerType.BinanceData)
+                {
+                    serverPermission = new BinanceDataServerPermission();
+                }
 
                 if (serverPermission != null)
                 {
@@ -1593,6 +1609,133 @@ namespace OsEngine.Market
             catch (Exception ex)
             {
                 SendNewLogMessage(ex.ToString(), LogMessageType.Error);
+            }
+        }
+
+        public static List<ProxyOsa> GetAllProxies()
+        {
+            try
+            {
+                return _proxyMaster.Proxies;
+            }
+            catch (Exception ex)
+            {
+                SendNewLogMessage(ex.ToString(),LogMessageType.Error);
+                return null;
+            }
+        }
+
+        public static bool AddNewProxy(
+            bool isOn, string ip, int port, 
+            string login, string password, 
+            string pingWebAddress)
+        {
+            try
+            {
+                for (int i = 0; i < _proxyMaster.Proxies.Count; i++)
+                {
+                    ProxyOsa proxyCurrent = _proxyMaster.Proxies[i];
+
+                    if (proxyCurrent.Ip == ip
+                        && proxyCurrent.Port == port
+                        && proxyCurrent.Login == login
+                        && proxyCurrent.UserPassword == password)
+                    {
+                        return false;
+                    }
+                }
+
+                ProxyOsa newProxy = _proxyMaster.CreateNewProxy();
+                newProxy.IsOn = isOn;
+                newProxy.Ip = ip;
+                newProxy.Port = port;
+                newProxy.Login = login;
+                newProxy.UserPassword = password;
+                newProxy.PingWebAddress = pingWebAddress;
+
+                _proxyMaster.SaveProxy();
+
+                return true;
+            }
+            catch(Exception ex)
+            {
+                SendNewLogMessage(ex.ToString(), LogMessageType.Error);
+            }
+            return false;
+        }
+
+        public static bool RemoveProxy(int number)
+        {
+            try
+            {
+                int proxiesCount = _proxyMaster.Proxies.Count;
+
+                _proxyMaster.RemoveProxy(number);
+                
+
+                if(proxiesCount != _proxyMaster.Proxies.Count)
+                {
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                SendNewLogMessage(ex.ToString(), LogMessageType.Error);
+            }
+            return false;
+        }
+
+        public static ProxyOsa GetOneProxyAt(int number)
+        {
+            try
+            {
+                List<ProxyOsa> proxies = _proxyMaster.Proxies;
+
+                for(int i = 0;i < proxies.Count;i++)
+                {
+                    if(proxies[i].Number == number)
+                    {
+                        return proxies[i];
+                    }
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                SendNewLogMessage(ex.ToString(), LogMessageType.Error);
+                return null;
+            }
+        }
+
+        public static ProxyOsa UpdateStatusProxyAt(int number)
+        {
+            try
+            {
+                List<ProxyOsa> proxies = _proxyMaster.Proxies;
+
+                ProxyOsa proxy = null;
+
+                for (int i = 0; i < proxies.Count; i++)
+                {
+                    if (proxies[i].Number == number)
+                    {
+                        proxy = proxies[i];
+                    }
+                }
+
+                if(proxy != null)
+                {
+                    _proxyMaster.PingProxy(proxy);
+                    return proxy;
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                SendNewLogMessage(ex.ToString(), LogMessageType.Error);
+                return null;
             }
         }
 
@@ -1687,6 +1830,39 @@ namespace OsEngine.Market
         public static event Action<Order> RevokeOrderToEmulatorEvent;
 
         public static event Action<string, IServer, string> ClearPositionOnBoardEvent;
+
+        #endregion
+
+        #region Auto Follow. CopyMaster
+
+        private static CopyMaster _copyMaster;
+
+        public static void SaveCopyMaster()
+        {
+            _copyMaster.SaveCopyTraders();
+        }
+
+        public static void ActivateCopyMaster()
+        {
+            if (_copyMaster == null)
+            {
+                _copyMaster = new CopyMaster();
+                _copyMaster.LogMessageEvent += SendNewLogMessage;
+                _copyMaster.Activate();
+            }
+        }
+
+        public static void ShowCopyMasterDialog()
+        {
+            try
+            {
+                _copyMaster.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                SendNewLogMessage(ex.ToString(), LogMessageType.Error);
+            }
+        }
 
         #endregion
 
@@ -2107,5 +2283,11 @@ namespace OsEngine.Market
         /// Чтение новостей с Telegram каналов
         /// </summary>
         TelegramNews,
+
+        /// <summary>
+        /// downloading historical data from exchange Binance
+        /// скачивание исторических данных с биржи Binance
+        /// </summary>
+        BinanceData
     }
 }

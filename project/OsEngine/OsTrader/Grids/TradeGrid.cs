@@ -113,6 +113,7 @@ namespace OsEngine.OsTrader.Grids
             result += _firstTradePrice + "@";
             result +=  _openPositionsBySession + "@";
             result += _firstTradeTime.ToString(CultureInfo.InvariantCulture) + "@";
+            result += DelayInReal + "@";
 
             result += "%";
 
@@ -172,6 +173,15 @@ namespace OsEngine.OsTrader.Grids
                 _firstTradePrice = values[8].ToDecimal();
                 _openPositionsBySession = Convert.ToInt32(values[9]);
                 _firstTradeTime = Convert.ToDateTime(values[10], CultureInfo.InvariantCulture);
+
+                try
+                {
+                    DelayInReal = Convert.ToInt32(values[11]);
+                }
+                catch
+                {
+                    DelayInReal = 500;
+                }
 
                 // non trade periods
                 NonTradePeriods.LoadFromString(array[1]);
@@ -332,6 +342,8 @@ namespace OsEngine.OsTrader.Grids
         public int MaxOpenOrdersInMarket = 5;
 
         public int MaxCloseOrdersInMarket = 5;
+
+        public int DelayInReal = 500;
 
         #endregion
 
@@ -821,7 +833,7 @@ namespace OsEngine.OsTrader.Grids
 
             if (countRejectOrders > 0)
             {
-                _vacationTime = DateTime.Now.AddSeconds(1 + countRejectOrders);
+                _vacationTime = DateTime.Now.AddMilliseconds(DelayInReal * countRejectOrders);
                 return;
             }
 
@@ -867,7 +879,7 @@ namespace OsEngine.OsTrader.Grids
 
                 if (countRejectOrders > 0)
                 {
-                    _vacationTime = DateTime.Now.AddSeconds(1 + countRejectOrders);
+                    _vacationTime = DateTime.Now.AddMilliseconds(DelayInReal * countRejectOrders);
                     return;
                 }
 
@@ -898,7 +910,7 @@ namespace OsEngine.OsTrader.Grids
 
                     if (countRejectOrders > 0)
                     {
-                        _vacationTime = DateTime.Now.AddSeconds(1 + countRejectOrders);
+                        _vacationTime = DateTime.Now.AddMilliseconds(DelayInReal * countRejectOrders);
                         return;
                     }
 
@@ -985,7 +997,7 @@ namespace OsEngine.OsTrader.Grids
 
             if (countRejectOrders > 0)
             {
-                _vacationTime = DateTime.Now.AddSeconds(1 + countRejectOrders);
+                _vacationTime = DateTime.Now.AddMilliseconds(DelayInReal * countRejectOrders);
                 return;
             }
 
@@ -1008,7 +1020,7 @@ namespace OsEngine.OsTrader.Grids
 
                 if (countRejectOrders > 0)
                 {
-                    _vacationTime = DateTime.Now.AddSeconds(1 + countRejectOrders);
+                    _vacationTime = DateTime.Now.AddMilliseconds(DelayInReal * countRejectOrders);
                     return;
                 }
 
@@ -1039,11 +1051,11 @@ namespace OsEngine.OsTrader.Grids
 
                     if (countRejectOrders > 0)
                     {
-                        _vacationTime = DateTime.Now.AddSeconds(1 + countRejectOrders);
+                        _vacationTime = DateTime.Now.AddMilliseconds(DelayInReal * countRejectOrders);
                         return;
                     }
 
-                    // закрываем позиции насильно
+                    // закрываем позиции насильно 
                     TryForcedCloseGrid();
                 }
             }
@@ -1153,12 +1165,21 @@ namespace OsEngine.OsTrader.Grids
                         ordersToCancel.Add(openOrder);
                     }
                 }
+            }
 
-                if (position.CloseActive)
+            List<TradeGridLine> linesWithOrdersToCloseFact = GetLinesWithClosingOrdersFact();
+
+            for (int i = 0; linesWithOrdersToCloseFact != null && i < linesWithOrdersToCloseFact.Count; i++)
+            {
+                Position position = linesWithOrdersToCloseFact[i].Position;
+                TradeGridLine currentLine = linesWithOrdersToCloseFact[i];
+
+                if (position.CloseActive) 
                 {
                     Order closeOrder = position.CloseOrders[^1];
 
-                    if (closeOrder.Price != currentLine.PriceExit)
+                    if (closeOrder.Price != currentLine.PriceExit
+                        && closeOrder.TypeOrder != OrderPriceType.Market)
                     {
                         ordersToCancel.Add(closeOrder);
                     }
@@ -1363,8 +1384,11 @@ namespace OsEngine.OsTrader.Grids
 
                 Order order = lines[i].Position.CloseOrders[^1];
 
-                Tab.CloseOrder(order);
-                cancelledOrders++;
+                if(order.TypeOrder != OrderPriceType.Market)
+                {
+                    Tab.CloseOrder(order);
+                    cancelledOrders++;
+                }
             }
 
             return cancelledOrders;
@@ -1622,7 +1646,8 @@ namespace OsEngine.OsTrader.Grids
             {
                 TradeGridLine line = lines[i];
 
-                if (line.Position == null)
+                if (line.Position == null
+                    || line.Position.CloseActive == true)
                 {
                     continue;
                 }
@@ -1949,6 +1974,23 @@ namespace OsEngine.OsTrader.Grids
                 }
             }
             return linesWithOpenOrder;
+        }
+
+        public List<TradeGridLine> GetLinesWithClosingOrdersFact()
+        {
+            List<TradeGridLine> linesAll = GridCreator.Lines;
+
+            List<TradeGridLine> linesWithCloseOrder = new List<TradeGridLine>();
+
+            for (int i = 0; linesAll != null && i < linesAll.Count; i++)
+            {
+                if (linesAll[i].Position != null
+                    && linesAll[i].Position.CloseActive)
+                {
+                    linesWithCloseOrder.Add(linesAll[i]);
+                }
+            }
+            return linesWithCloseOrder;
         }
 
         #endregion

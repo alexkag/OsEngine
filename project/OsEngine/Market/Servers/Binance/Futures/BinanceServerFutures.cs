@@ -665,6 +665,12 @@ namespace OsEngine.Market.Servers.Binance.Futures
 
                 PriceTicker resp = JsonConvert.DeserializeAnonymousType(res, new PriceTicker());
 
+                if (resp.price == null
+                    || resp.symbol == null)
+                {
+                    return 0;
+                }
+
                 price = resp.price.ToDecimal();
 
                 return price;
@@ -1703,7 +1709,7 @@ namespace OsEngine.Market.Servers.Binance.Futures
 
         private List<OpenInterestData> _openInterest = new List<OpenInterestData>();
 
-        private DateTime _timeLast = DateTime.Now;
+        private DateTime _timeLastUpdateExtendedData = DateTime.Now;
 
         private void ThreadExtendedData()
         {
@@ -1711,27 +1717,35 @@ namespace OsEngine.Market.Servers.Binance.Futures
             {
                 if (ServerStatus == ServerConnectStatus.Disconnect)
                 {
-                    Thread.Sleep(1000);
-                    continue;
+                    Thread.Sleep(3000);
                 }
 
-                if (_subscribledSecurities == null
-                    || _subscribledSecurities.Count == 0)
+                try
                 {
-                    continue;
+                    if (_subscribledSecurities != null
+                    && _subscribledSecurities.Count > 0
+                    && _extendedMarketData)
+                    {
+                        if (_timeLastUpdateExtendedData.AddSeconds(20) < DateTime.Now)
+                        {
+                            GetOpenInterest();
+                            _timeLastUpdateExtendedData = DateTime.Now;
+                        }
+                        else
+                        {
+                            Thread.Sleep(1000);
+                        }
+                    }
+                    else
+                    {
+                        Thread.Sleep(1000);
+                    }
                 }
-
-                if (_timeLast.AddSeconds(20) > DateTime.Now)
+                catch (Exception ex)
                 {
-                    continue;
+                    Thread.Sleep(5000);
+                    SendLogMessage(ex.Message, LogMessageType.Error);
                 }
-
-                if (!_extendedMarketData)
-                {
-                    continue;
-                }
-
-                GetOpenInterest();
             }
         }
 
@@ -1770,9 +1784,7 @@ namespace OsEngine.Market.Servers.Binance.Futures
                             _openInterest.Add(openInterestData);
                         }
                     }
-                }
-
-                _timeLast = DateTime.Now;
+                } 
             }
             catch (Exception e)
             {

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Your rights to use code governed by this license http://o-s-a.net/doc/license_simple_engine.pdf
  * Ваши права на использование кода регулируются данной лицензией http://o-s-a.net/doc/license_simple_engine.pdf
 */
@@ -11,7 +11,7 @@ namespace OsEngine.Language
 
         public string ServerParamPassword => OsLocalization.ConvertToLocString(
            "Eng:Password_" +
-           "Ru:Пароль_");
+           "Ru:Password_");
 
         public string Message1 => OsLocalization.ConvertToLocString(
             "Eng:No connection to the exchange was found!_" +
@@ -483,23 +483,23 @@ namespace OsEngine.Language
 
         public string Label112 => OsLocalization.ConvertToLocString(
           "Eng:Portfolio Spot_" +
-          "Ru:Портфель Спот_");
+          "Ru:Portfolio Spot_");
 
         public string Label113 => OsLocalization.ConvertToLocString(
           "Eng:Portfolio FORTS_" +
-          "Ru:Портфель FORTS_");
+          "Ru:Portfolio FORTS_");
 
         public string Label114 => OsLocalization.ConvertToLocString(
           "Eng:Portfolio currency_" +
-          "Ru:Портфель валютный_");
+          "Ru:Portfolio currency_");
 
         public string Label115 => OsLocalization.ConvertToLocString(
           "Eng:Portfolio spare_" +
-          "Ru:Портфель запасной_");
+          "Ru:Portfolio spare_");
 
         public string Label116 => OsLocalization.ConvertToLocString(
           "Eng:Portfolio spare_" +
-          "Ru:Портфель запасной_");
+          "Ru:Portfolio spare_");
 
         public string Label117 => OsLocalization.ConvertToLocString(
             "Eng:Pin_" +
@@ -686,8 +686,8 @@ namespace OsEngine.Language
           "Ru:Один код клиента_");
 
         public string Label163 => OsLocalization.ConvertToLocString(
-          "Eng:If the broker uses several client codes, the value is false (for example, Finam , BCS), if there is only one client code, the value is true (for example, VTB). By default, false_" +
-          "Ru:Если брокер использует несколько клиентских кодов, то значение false (например, Финам, БКС), если клиент код всего один, то значение true (например, ВТБ). По умолчанию false_");
+          "Eng:If the broker uses several client codes, the value is false (for example, Finam , BCS), if there is only one client code, the value is true (for example, VTB). Used to display the portfolio. By default, false_" +
+          "Ru:Если брокер использует несколько клиентских кодов, то значение false, если клиент код всего один, то значение true (например, ВТБ). Используется для отображения портфеля. По умолчанию false_");
 
         public string Label164 => OsLocalization.ConvertToLocString(
           "Eng:Name _" +
@@ -763,7 +763,7 @@ namespace OsEngine.Language
 
         public string Label182 => OsLocalization.ConvertToLocString(
           "Eng:Is on_" +
-          "Ru:Включено?_");
+          "Ru:Вкл/выкл_");
 
         public string Label183 => OsLocalization.ConvertToLocString(
           "Eng:Ip_" +
@@ -816,6 +816,49 @@ namespace OsEngine.Language
         public string Label195 => OsLocalization.ConvertToLocString(
           "Eng:Disables or enables the trading floor. Very much affects the connection speed. Trading mode MTQR, SPFEQ_" +
           "Ru:Отключает или включает площадку для торговли. Очень сильно влияет на скорость подключения. Режим торгов MTQR, SPFEQ_");
+
+        public string Label196 => OsLocalization.ConvertToLocString(
+          "Eng:You're going to delete the item! Are you sure?_" +
+          "Ru:Вы собариатесь удалить элемент! Вы уверены?_");
+
+        public string Label197 => OsLocalization.ConvertToLocString(
+          "Eng:Copy trading_" +
+          "Ru:Копитрейдинг_");
+
+        public string Label198 => OsLocalization.ConvertToLocString(
+          "Eng:Copy trader modules_" +
+          "Ru:Модули копитрейдинга_");
+
+        public string Label199 => OsLocalization.ConvertToLocString(
+          "Eng:Log_" +
+          "Ru:Лог_");
+
+        public string Label200 => OsLocalization.ConvertToLocString(
+          "Eng:Type_" +
+          "Ru:Тип_");
+
+        public string Label201 => OsLocalization.ConvertToLocString(
+         "Eng:Copy trader_" +
+         "Ru:Копитрейдер_");
+
+        public string Label202 => OsLocalization.ConvertToLocString(
+         "Eng:Base settings_" +
+         "Ru:Базовые настройки_");
+
+        public string Label203 => OsLocalization.ConvertToLocString(
+         "Eng:Portfolios_" +
+         "Ru:Портфели_");
+
+        public string Label204 => OsLocalization.ConvertToLocString(
+         "Eng:Robots_" +
+         "Ru:Роботы_");
+
+
+
+
+
+
+
 
         public string LabelCommissionType => OsLocalization.ConvertToLocString(
             "Eng:Commission type_" +
@@ -1099,11 +1142,11 @@ namespace OsEngine.Language
 
         public string Message63 => OsLocalization.ConvertToLocString(
             "Eng:User name_" +
-            "Ru:Имя пользователя_");
+            "Ru:User name_");
 
         public string Message64 => OsLocalization.ConvertToLocString(
             "Eng:Password_" +
-            "Ru:Пароль_");
+            "Ru:Password_");
 
         public string Message65 => OsLocalization.ConvertToLocString(
             "Eng:No key specified. Connection terminated_" +
@@ -1175,7 +1218,7 @@ namespace OsEngine.Language
 
         public string Message82 => OsLocalization.ConvertToLocString(
             "Eng:Path to Quik_" +
-            "Ru:Путь к Квик_");
+            "Ru:Path to Quik_");
 
         public string Message83 => OsLocalization.ConvertToLocString(
             "Eng:Error. You must specify the location of the Quik_" +
@@ -1283,15 +1326,15 @@ namespace OsEngine.Language
 
         public string ServerParamPublicKey => OsLocalization.ConvertToLocString(
             "Eng:Public key_" +
-            "Ru:Публичный ключ_");
+            "Ru:Public key_");
 
         public string ServerParameterSecretKey => OsLocalization.ConvertToLocString(
             "Eng:Secret key_" +
-            "Ru:Секретный ключ_");
+            "Ru:Secret key_");
 
         public string ServerParameterPassphrase => OsLocalization.ConvertToLocString(
             "Eng:Passphrase_" +
-            "Ru:Пароль_");
+            "Ru:Passphrase_");
 
         public string ServerParamToken => OsLocalization.ConvertToLocString(
             "Eng:Token_" +
@@ -1311,7 +1354,7 @@ namespace OsEngine.Language
 
         public string ServerParamId => OsLocalization.ConvertToLocString(
             "Eng:Id_" +
-            "Ru:Идентификатор_");
+            "Ru:Id_");
 
         public string ServerParamProxy => OsLocalization.ConvertToLocString(
             "Eng:Proxy_" +
@@ -1426,7 +1469,8 @@ namespace OsEngine.Language
            "Ru:Отправить_");
 
         public string TelegramAuthTitle => OsLocalization.ConvertToLocString(
-             "Eng:Telegram authorization_" +
-             "Ru:Telegram авторизация_");
+           "Eng:Telegram authorization_" +
+           "Ru:Telegram авторизация_");
+
     }
 }

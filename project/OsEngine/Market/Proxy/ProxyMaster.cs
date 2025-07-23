@@ -18,6 +18,7 @@ namespace OsEngine.Market.Proxy
 {
     public class ProxyMaster
     {
+
         public void Activate()
         {
             LoadSettings();
@@ -81,6 +82,11 @@ namespace OsEngine.Market.Proxy
             }
             else
             {
+                if(_ui.WindowState == System.Windows.WindowState.Minimized)
+                {
+                    _ui.WindowState = System.Windows.WindowState.Normal;
+                }
+
                 _ui.Activate();
             }
         }
@@ -270,7 +276,7 @@ namespace OsEngine.Market.Proxy
             }
         }
 
-        public void CreateNewProxy()
+        public ProxyOsa CreateNewProxy()
         {
             ProxyOsa newProxy = new ProxyOsa();
 
@@ -288,6 +294,8 @@ namespace OsEngine.Market.Proxy
 
             Proxies.Add(newProxy);
             SaveProxy();
+
+            return newProxy;
         }
 
         public void RemoveProxy(int number)
@@ -426,7 +434,7 @@ namespace OsEngine.Market.Proxy
             _pingThread = null;
         }
 
-        private void PingProxy(ProxyOsa proxy)
+        public void PingProxy(ProxyOsa proxy)
         {
             if (string.IsNullOrEmpty(proxy.Ip) == true)
             {

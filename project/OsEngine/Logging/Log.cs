@@ -17,6 +17,7 @@ using OsEngine.Charts.CandleChart;
 using OsEngine.Entity;
 using OsEngine.Language;
 using OsEngine.Market;
+using OsEngine.Market.AutoFollow;
 using OsEngine.Market.Servers;
 using OsEngine.Market.Servers.Miner;
 using OsEngine.Market.Servers.Optimizer;
@@ -338,11 +339,23 @@ namespace OsEngine.Logging
                 _miners[i].LogMessageEvent -= ProcessMessage;
             }
 
+            for (int i = 0; i < _copyMasters.Count; i++)
+            {
+                _copyMasters[i].LogMessageEvent -= ProcessMessage;
+            }
+
+            for (int i = 0; i < _copyTraders.Count; i++)
+            {
+                _copyTraders[i].LogMessageEvent -= ProcessMessage;
+            }
+
             for (int i = 0; i < _serversToListen.Count; i++)
             {
                 _serversToListen[i].LogMessageEvent -= ProcessMessage;
             }
 
+            _copyTraders.Clear();
+            _copyMasters.Clear();
             _candleConverters.Clear();
             _osConverterMasters.Clear();
             _osTraderMasters.Clear();
@@ -453,6 +466,8 @@ namespace OsEngine.Logging
         List<OsMinerServer> _miners = new List<OsMinerServer>();
         List<IServer> _serversToListen = new List<IServer>();
         List<PolygonToTrade> _polygonsToTrade = new List<PolygonToTrade>();
+        List<CopyMaster> _copyMasters = new List<CopyMaster>();
+        List<CopyTrader> _copyTraders = new List<CopyTrader>();
 
         /// <summary>
         /// start listening to the server
@@ -463,6 +478,18 @@ namespace OsEngine.Logging
         {
             server.LogMessageEvent += ProcessMessage;
             _serversToListen.Add(server);
+        }
+
+        public void Listen(CopyMaster copyMaster)
+        {
+            copyMaster.LogMessageEvent += ProcessMessage;
+            _copyMasters.Add(copyMaster);
+        }
+
+        public void Listen(CopyTrader copyTrader)
+        {
+            copyTrader.LogMessageEvent += ProcessMessage;
+            _copyTraders.Add(copyTrader);
         }
 
         /// <summary>
