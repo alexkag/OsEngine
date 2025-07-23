@@ -34,6 +34,7 @@ using Security = OsEngine.Entity.Security;
 using Side = OsEngine.Entity.Side;
 using TimeFrame = OsEngine.Entity.TimeFrame;
 using Trade = OsEngine.Entity.Trade;
+using System.Collections.Concurrent;
 
 namespace OsEngine.Market.Servers.FinamGrpc
 {
@@ -306,6 +307,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         private void GetPortfolios(GetAccountResponse getAccountResponse)
         {
+            if (getAccountResponse == null) return;
             Portfolio myPortfolio = _myPortfolios.Find(p => p.Number == getAccountResponse.AccountId);
 
             if (myPortfolio == null)
@@ -751,8 +753,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
         private CancellationTokenSource _cancellationTokenSource;
         private WebProxy _proxy;
 
-        private Dictionary<string, OrderBookStreamReaderInfo> _dicOrderBookStreams = new Dictionary<string, OrderBookStreamReaderInfo>();
-        private Dictionary<string, TradesStreamReaderInfo> _dicLatestTradesStreams = new Dictionary<string, TradesStreamReaderInfo>();
+        private ConcurrentDictionary<string, OrderBookStreamReaderInfo> _dicOrderBookStreams = new ConcurrentDictionary<string, OrderBookStreamReaderInfo>();
+        private ConcurrentDictionary<string, TradesStreamReaderInfo> _dicLatestTradesStreams = new ConcurrentDictionary<string, TradesStreamReaderInfo>();
         private AsyncDuplexStreamingCall<OrderTradeRequest, OrderTradeResponse> _myOrderTradeStream;
 
         private Dictionary<string, DateTime> _dicLastMdTime = new Dictionary<string, DateTime>();
@@ -861,7 +863,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
         // Запуск reader для конкретного инструмента
         private void StartLatestTradesStream(Security security)
         {
-            if (_dicLatestTradesStreams.ContainsKey(security.NameId))
+
+            if (!_dicLatestTradesStreams.TryAdd(security.NameId, null))
             {
                 // Уже есть reader, не запускаем второй
                 return;
@@ -883,7 +886,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         private void StartOrderBookStream(Security security)
         {
-            if (_dicOrderBookStreams.ContainsKey(security.NameId))
+
+            if (!_dicOrderBookStreams.TryAdd(security.NameId, null))
             {
                 // Уже есть reader, не запускаем второй
                 return;
@@ -913,13 +917,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         private void DisconnectLatestTradesStream(Security security)
         {
-            if (_dicLatestTradesStreams.TryGetValue(security.NameId, out TradesStreamReaderInfo info))
+            if (_dicLatestTradesStreams.TryRemove(security.NameId, out TradesStreamReaderInfo info))
             {
                 // Отменяем токен только для этого ридера
                 info.CancellationTokenSource.Cancel();
                 try { info.ReaderTask.Wait(1000); } catch { }
                 if (info.Stream != null) info.Stream.Dispose();
-                _dicLatestTradesStreams.Remove(security.NameId);
             }
         }
 
@@ -932,13 +935,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         private void DisconnectOrderBookStream(Security security)
         {
-            if (_dicOrderBookStreams.TryGetValue(security.NameId, out OrderBookStreamReaderInfo info))
+            if (_dicOrderBookStreams.TryRemove(security.NameId, out OrderBookStreamReaderInfo info))
             {
                 // Отменяем токен только для этого ридера
                 info.CancellationTokenSource.Cancel();
                 try { info.ReaderTask.Wait(1000); } catch { }
                 if (info.Stream != null) info.Stream.Dispose();
-                _dicLatestTradesStreams.Remove(security.NameId);
             }
         }
 
@@ -1504,7 +1506,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 order.TimeDone = orderState.AcceptAt.ToDateTime();
             }
             //MyOrderEvent?.Invoke(order);
-            InvokeMyOrderEvent(order);
+            //InvokeMyOrderEvent(order);
         }
 
         public void GetAllActivOrders()
