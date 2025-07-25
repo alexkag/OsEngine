@@ -79,9 +79,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
             worker3.Name = "MyOrderTradeMessageReaderFinamGrpc";
             worker3.Start();
 
-            Thread worker3s = new Thread(MyOrderTradeKeepAlive);
-            worker3s.Name = "MyOrderTradeKeepAliveFinamGrpc";
-            worker3s.Start();
         }
 
         public void Connect(WebProxy proxy)
@@ -1194,37 +1191,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
         }
 
-        private async void MyOrderTradeKeepAlive()
-        {
-            // Собственные заявки и сделки
-            // Повторящаяся подписка, так как нет пинга и поток отваливается без реанимации
-            // Пример для duplex stream
-            while (_cancellationTokenSource == null)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(5));
-            }
-
-            while (!_cancellationTokenSource.IsCancellationRequested)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(30), _cancellationTokenSource.Token);
-                try
-                {
-                    if (_myOrderTradeStream != null)
-                    {
-                        await _myOrderTradeStream.RequestStream.WriteAsync(new OrderTradeRequest { AccountId = _accountId, Action = OrderTradeRequest.Types.Action.Subscribe, DataType = OrderTradeRequest.Types.DataType.All });
-                    }
-                }
-                catch (Exception ex)
-                {
-                    SendLogMessage($"MyOrderTrade keepalive failed: {ex}", LogMessageType.Error);
-                    break;
-                }
-            }
-        }
-
         private async void MyOrderTradeMessageReader()
         {
             Thread.Sleep(1000);
+
+            DateTime lastKeepAlive = DateTime.UtcNow;
 
             while (true)
             {
@@ -1240,6 +1211,23 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     {
                         Thread.Sleep(1);
                         continue;
+                    }
+
+                    // Keep Alive
+                    if ((DateTime.UtcNow - lastKeepAlive).TotalSeconds > 30)
+                    {
+                        try
+                        {
+                            await _myOrderTradeStream.RequestStream.WriteAsync(
+                                new OrderTradeRequest { AccountId = _accountId, Action = OrderTradeRequest.Types.Action.Subscribe, DataType = OrderTradeRequest.Types.DataType.All }
+                            );
+                            lastKeepAlive = DateTime.UtcNow;
+                        }
+                        catch (Exception ex)
+                        {
+                            SendLogMessage($"MyOrderTrade keepalive failed: {ex}", LogMessageType.Error);
+                            // Можно break или continue, по вашей логике
+                        }
                     }
 
                     if (await _myOrderTradeStream.ResponseStream.MoveNext() == false)
