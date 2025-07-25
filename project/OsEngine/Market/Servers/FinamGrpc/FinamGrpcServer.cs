@@ -12,17 +12,12 @@ using Grpc.Tradeapi.V1.Orders;
 using OsEngine.Entity;
 using OsEngine.Language;
 using OsEngine.Logging;
-using OsEngine.Market.Servers.Alor.Json;
 using OsEngine.Market.Servers.Entity;
-using OsEngine.Market.Servers.MoexFixFastSpot;
-using OsEngine.Market.Servers.Transaq.TransaqEntity;
-using RestSharp;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Candle = OsEngine.Entity.Candle;
@@ -33,7 +28,7 @@ using FPosition = Grpc.Tradeapi.V1.Accounts.Position;
 using FSide = Grpc.Tradeapi.V1.Side;
 using FTimeFrame = Grpc.Tradeapi.V1.Marketdata.TimeFrame;
 using FTrade = Grpc.Tradeapi.V1.Marketdata.Trade;
-using GTime = Google.Type.DateTime;
+//using GTime = Google.Type.DateTime;
 using Order = OsEngine.Entity.Order;
 using Portfolio = OsEngine.Entity.Portfolio;
 using Security = OsEngine.Entity.Security;
@@ -54,6 +49,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             // Для работы с API необходим токен secret, сгенерированный на портале Finam ( https://tradeapi.finam.ru/docs/tokens )
             CreateParameterPassword(OsLocalization.Market.ServerParamToken, "");
+
             // Параметр account_id, это аккаунт в личном кабинете формата КлФ-account_id
             CreateParameterString("Account ID", "");
         }
@@ -63,6 +59,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
     {
 
         #region 1 Constructor, Status, Connection
+
         public FinamGrpcServerRealization()
         {
             ServerTime = DateTime.UtcNow;
@@ -83,7 +80,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             worker3.Start();
 
             Thread worker3s = new Thread(MyOrderTradeKeepAlive);
-            worker3s.Name = "MyOrderTradeSubscriberFinamGrpc";
+            worker3s.Name = "MyOrderTradeKeepAliveFinamGrpc";
             worker3s.Start();
         }
 
@@ -171,18 +168,24 @@ namespace OsEngine.Market.Servers.FinamGrpc
             SetDisconnected();
         }
 
-        public List<IServerParameter> ServerParameters { get; set; }
         public event Action ConnectEvent;
+
         public event Action DisconnectEvent;
 
         public DateTime ServerTime { get; set; }
+
         public ServerConnectStatus ServerStatus { get; set; } = ServerConnectStatus.Disconnect;
+
+        public List<IServerParameter> ServerParameters { get; set; }
+        
         #endregion
 
         #region 2 Properties
+
         public ServerType ServerType => ServerType.FinamGrpc;
 
         private string _accessToken;
+
         private string _accountId;
 
         private int _timezoneOffset = 3;
@@ -192,9 +195,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         //private readonly string _gRPCHost = "https://ftrr01.finam.ru:443";
         private readonly string _gRPCHost = "https://api.finam.ru:443"; // https://t.me/finam_trade_api/1/1751
+        
         #endregion
 
         #region 3 Securities
+
         public void GetSecurities()
         {
             _rateGateAssetsAsset.WaitToProceed();
@@ -279,14 +284,16 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
         }
 
-        private List<Security> _securities = new List<Security>();
-
         public event Action<List<Security>> SecurityEvent;
 
         private RateGate _rateGateAssetsAsset = new RateGate(200, TimeSpan.FromMinutes(1));
+
+        private List<Security> _securities = new List<Security>();
+
         #endregion
 
         #region 4 Portfolios
+
         public void GetPortfolios()
         {
             GetAccountResponse getAccountResponse = null;
@@ -313,53 +320,55 @@ namespace OsEngine.Market.Servers.FinamGrpc
         private void GetPortfolios(GetAccountResponse getAccountResponse)
         {
             if (getAccountResponse == null) return;
-            Portfolio myPortfolio = _myPortfolios.Find(p => p.Number == getAccountResponse.AccountId);
-
-            if (myPortfolio == null)
+            lock (_portfolioLocker)
             {
-                myPortfolio = new Portfolio();
-                myPortfolio.Number = getAccountResponse.AccountId;
-                myPortfolio.ValueCurrent = Math.Truncate(getAccountResponse.Equity.Value.ToDecimal() * 100m) / 100m;
-                myPortfolio.ValueBegin = myPortfolio.ValueCurrent;
-                myPortfolio.UnrealizedPnl = getAccountResponse.UnrealizedProfit.Value.ToDecimal();
-                _myPortfolios.Add(myPortfolio);
+                Portfolio myPortfolio = _myPortfolios.Find(p => p.Number == getAccountResponse.AccountId);
+
+                if (myPortfolio == null)
+                {
+                    myPortfolio = new Portfolio();
+                    myPortfolio.Number = getAccountResponse.AccountId;
+                    myPortfolio.ValueCurrent = Math.Truncate(getAccountResponse.Equity.Value.ToDecimal() * 100m) / 100m;
+                    myPortfolio.ValueBegin = myPortfolio.ValueCurrent;
+                    myPortfolio.UnrealizedPnl = getAccountResponse.UnrealizedProfit.Value.ToDecimal();
+                    _myPortfolios.Add(myPortfolio);
+                }
+                else
+                {
+                    myPortfolio.ValueCurrent = Math.Truncate(getAccountResponse.Equity.Value.ToDecimal() * 100m) / 100m;
+                    myPortfolio.UnrealizedPnl = getAccountResponse.UnrealizedProfit.Value.ToDecimal();
+                }
+
+                //for (int i = 0; i < getAccountResponse.Cash.Count; i++)
+                //{
+                //    GoogleType.Money pos = getAccountResponse.Cash[i];
+                //    PositionOnBoard newPos = new PositionOnBoard();
+
+                //    newPos.PortfolioName = myPortfolio.Number;
+                //    newPos.SecurityNameCode = pos.CurrencyCode;
+                //    newPos.ValueCurrent = GetValue(pos);
+                //    //newPos.ValueBlocked = pos.Blocked / instrument.Instrument.Lot;
+                //    newPos.ValueBegin = newPos.ValueCurrent;
+
+                //    myPortfolio.SetNewPosition(newPos);
+                //}
+
+                for (int i = 0; i < getAccountResponse.Positions.Count; i++)
+                {
+                    FPosition pos = getAccountResponse.Positions[i];
+                    PositionOnBoard newPos = new PositionOnBoard();
+
+                    newPos.PortfolioName = myPortfolio.Number;
+                    newPos.SecurityNameCode = pos.Symbol;
+                    newPos.ValueCurrent = pos.Quantity.Value.ToDecimal();
+                    //newPos.ValueCurrent = pos.Quantity.Value.ToDecimal() * pos.CurrentPrice.Value.ToDecimal();
+                    //newPos.ValueBlocked = pos.Blocked / instrument.Instrument.Lot;
+                    newPos.ValueBegin = pos.Quantity.Value.ToDecimal();
+                    //newPos.ValueBegin = pos.Quantity.Value.ToDecimal() * pos.AveragePrice.Value.ToDecimal();
+
+                    myPortfolio.SetNewPosition(newPos);
+                }
             }
-            else
-            {
-                myPortfolio.ValueCurrent = Math.Truncate(getAccountResponse.Equity.Value.ToDecimal() * 100m) / 100m;
-                myPortfolio.UnrealizedPnl = getAccountResponse.UnrealizedProfit.Value.ToDecimal();
-            }
-
-            //for (int i = 0; i < getAccountResponse.Cash.Count; i++)
-            //{
-            //    GoogleType.Money pos = getAccountResponse.Cash[i];
-            //    PositionOnBoard newPos = new PositionOnBoard();
-
-            //    newPos.PortfolioName = myPortfolio.Number;
-            //    newPos.SecurityNameCode = pos.CurrencyCode;
-            //    newPos.ValueCurrent = GetValue(pos);
-            //    //newPos.ValueBlocked = pos.Blocked / instrument.Instrument.Lot;
-            //    newPos.ValueBegin = newPos.ValueCurrent;
-
-            //    myPortfolio.SetNewPosition(newPos);
-            //}
-
-            for (int i = 0; i < getAccountResponse.Positions.Count; i++)
-            {
-                FPosition pos = getAccountResponse.Positions[i];
-                PositionOnBoard newPos = new PositionOnBoard();
-
-                newPos.PortfolioName = myPortfolio.Number;
-                newPos.SecurityNameCode = pos.Symbol;
-                newPos.ValueCurrent = pos.Quantity.Value.ToDecimal();
-                //newPos.ValueCurrent = pos.Quantity.Value.ToDecimal() * pos.CurrentPrice.Value.ToDecimal();
-                //newPos.ValueBlocked = pos.Blocked / instrument.Instrument.Lot;
-                newPos.ValueBegin = pos.Quantity.Value.ToDecimal();
-                //newPos.ValueBegin = pos.Quantity.Value.ToDecimal() * pos.AveragePrice.Value.ToDecimal();
-
-                myPortfolio.SetNewPosition(newPos);
-            }
-
         }
 
         private RateGate _rateGateAccountsGetAccount = new RateGate(200, TimeSpan.FromMinutes(1));
@@ -367,6 +376,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
         public event Action<List<Portfolio>> PortfolioEvent;
 
         private List<Portfolio> _myPortfolios = new List<Portfolio>();
+
+        private string _portfolioLocker = "portfolioLockerFinamGrpc";
         #endregion
 
         #region 5 Data
@@ -682,8 +693,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
         }
 
         private RateGate _rateGateAssetsGetAsset = new RateGate(200, TimeSpan.FromMinutes(1));
+        
         private RateGate _rateGateMarketDataOrderBook = new RateGate(200, TimeSpan.FromMinutes(1));
+
         private RateGate _rateGateMarketDataBars = new RateGate(200, TimeSpan.FromMinutes(1));
+
         #endregion
 
         #region 6 gRPC streams creation
@@ -754,26 +768,37 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
 
         private Metadata _gRpcMetadata;
+
         private GrpcChannel _channel;
+
         private CancellationTokenSource _cancellationTokenSource;
+
         private WebProxy _proxy;
 
         private ConcurrentDictionary<string, OrderBookStreamReaderInfo> _dicOrderBookStreams = new ConcurrentDictionary<string, OrderBookStreamReaderInfo>();
+
         private ConcurrentDictionary<string, TradesStreamReaderInfo> _dicLatestTradesStreams = new ConcurrentDictionary<string, TradesStreamReaderInfo>();
+
         private AsyncDuplexStreamingCall<OrderTradeRequest, OrderTradeResponse> _myOrderTradeStream;
 
         private Dictionary<string, DateTime> _dicLastMdTime = new Dictionary<string, DateTime>();
 
         private AuthService.AuthServiceClient _authClient;
+
         private AssetsService.AssetsServiceClient _assetsClient;
+
         private AccountsService.AccountsServiceClient _accountsClient;
+
         private OrdersService.OrdersServiceClient _myOrderTradeClient;
+
         private MarketDataService.MarketDataServiceClient _marketDataClient;
 
         private RateGate _rateGateAuth = new RateGate(200, TimeSpan.FromMinutes(1));
+
         #endregion
 
         #region 7 Security subscribe
+
         public void Subscrible(Security security)
         {
             if (security == null)
@@ -859,8 +884,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         //private AsyncServerStreamingCall<SubscribeOrderBookResponse> _orderBookStream;
         private RateGate _rateGateMarketDataSubscribeOrderBook = new RateGate(200, TimeSpan.FromMinutes(1));
+
         private RateGate _rateGateMarketDataSubscribeLatestTrades = new RateGate(200, TimeSpan.FromMinutes(1));
+
         private RateGate _rateGateMyOrderTradeSubscribeOrderTrade = new RateGate(200, TimeSpan.FromMinutes(1));
+
         #endregion
 
         #region 8 Reading messages from data streams
@@ -888,7 +916,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             _dicLatestTradesStreams[security.NameId] = streamReaderInfo;
         }
-
         private void StartOrderBookStream(Security security)
         {
 
@@ -1231,7 +1258,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
                     if (myOrderTradeResponse.Orders != null && myOrderTradeResponse.Orders.Count > 0)
                     {
-                        for (int j = 0; j < myOrderTradeResponse.Orders.Count; j++)
+                        for (int j = myOrderTradeResponse.Orders.Count - 1; j >= 0; j--)
                         {
                             OrderState myOrder = myOrderTradeResponse.Orders[j];
 
@@ -1246,7 +1273,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
                     if (myOrderTradeResponse.Trades != null && myOrderTradeResponse.Trades.Count > 0)
                     {
-                        for (int j = 0; j < myOrderTradeResponse.Trades.Count; j++)
+                        for (int j = myOrderTradeResponse.Trades.Count - 1; j >= 0; j--)
                         {
                             AccountTrade myTrade = myOrderTradeResponse.Trades[j];
 
@@ -1292,7 +1319,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             trade.NumberTrade = myTrade.TradeId;
             trade.NumberOrderParent = myTrade.OrderId;
             trade.SecurityNameCode = myTrade.Symbol; // TODO Баг АПИ (Не содержит названия биржи) "Symbol": "VTBR@MISX" - должно быть, есть "Symbol": "VTBR"
-            trade.Time = myTrade.Timestamp.ToDateTime();
+            trade.Time = myTrade.Timestamp.ToDateTime().AddHours(_timezoneOffset);
             return trade;
         }
 
@@ -1312,8 +1339,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             myOrder.PortfolioNumber = fOrder.AccountId;
             myOrder.NumberMarket = orderState.OrderId;
-            myOrder.TimeCallBack = orderState.TransactAt.ToDateTime(); // TODO Проверить
-            myOrder.TimeCreate = orderState.TransactAt.ToDateTime();  // TODO Проверить
+            myOrder.TimeCallBack = orderState.TransactAt.ToDateTime().AddHours(_timezoneOffset); // TODO Проверить
+            myOrder.TimeCreate = orderState.TransactAt.ToDateTime().AddHours(_timezoneOffset);  // TODO Проверить
             if (fOrder.LimitPrice != null)
             {
                 myOrder.Price = fOrder.LimitPrice.Value.ToDecimal();
@@ -1335,12 +1362,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             if (myOrder.State == OrderStateType.Cancel)
             {
-                myOrder.TimeCancel = orderState.TransactAt.ToDateTime(); // TODO Описание в документации не соответствует названию параметра. Уточнить.
+                myOrder.TimeCancel = orderState.TransactAt.ToDateTime().AddHours(_timezoneOffset); // TODO Описание в документации не соответствует названию параметра. Уточнить.
             }
 
             if (myOrder.State == OrderStateType.Done)
             {
-                myOrder.TimeDone = orderState.TransactAt.ToDateTime();
+                myOrder.TimeDone = orderState.TransactAt.ToDateTime().AddHours(_timezoneOffset);
             }
 
             //if (order.TimeInForce == TimeInForce.Day)
@@ -1354,11 +1381,15 @@ namespace OsEngine.Market.Servers.FinamGrpc
         public event Action<OptionMarketDataForConnector> AdditionalMarketDataEvent;
 
         public event Action<MarketDepth> MarketDepthEvent;
+
         public event Action<Trade> NewTradesEvent;
+
         public event Action<MyTrade> MyTradeEvent;
+
         #endregion
 
         #region 9 Channel check alive
+
         private void ConnectionCheckThread()
         {
             while (true)
@@ -1442,9 +1473,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
             }
         }
+
         #endregion
 
         #region 10 Trade
+
         public void SendOrder(Order order)
         {
             //Security security = GetSecurity(order.SecurityNameCode);
@@ -1694,7 +1727,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
                 else
                 {
-                    start = order.TimeCreate.AddSeconds(-30);
+                    start = order.TimeCreate.AddMinutes(-1).AddHours(-_timezoneOffset);
                 }
                 if (order.TimeDone == DateTime.MinValue)
                 {
@@ -1703,12 +1736,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
                 else
                 {
-                    end = order.TimeDone.AddSeconds(30);
+                    end = order.TimeDone.AddMinutes(1).AddHours(-_timezoneOffset);
                 }
                 var interval = new Interval
                 {
-                    StartTime = Timestamp.FromDateTime(DateTime.SpecifyKind(start.AddHours(-_timezoneOffset), DateTimeKind.Utc)),
-                    EndTime = Timestamp.FromDateTime(DateTime.SpecifyKind(end.AddHours(-_timezoneOffset), DateTimeKind.Utc))
+                    StartTime = Timestamp.FromDateTime(DateTime.SpecifyKind(start, DateTimeKind.Utc)),
+                    EndTime = Timestamp.FromDateTime(DateTime.SpecifyKind(end, DateTimeKind.Utc))
                 };
                 tradesResponse = _accountsClient.Trades(new TradesRequest { AccountId = _accountId, Interval = interval, Limit = 100 }, _gRpcMetadata);
 
@@ -1745,14 +1778,21 @@ namespace OsEngine.Market.Servers.FinamGrpc
         public void ChangeOrderPrice(Order order, decimal newPrice) { }
 
         public event Action<Order> MyOrderEvent;
+
         private RateGate _rateGateMyOrderTradePlaceOrder = new RateGate(200, TimeSpan.FromMinutes(1));
+
         private RateGate _rateGateMyOrderTradeCancelOrder = new RateGate(200, TimeSpan.FromMinutes(1));
+
         private RateGate _rateGateMyOrderTradeGetOrders = new RateGate(200, TimeSpan.FromMinutes(1));
+
         private RateGate _rateGateMyOrderTradeGetOrder = new RateGate(200, TimeSpan.FromMinutes(1));
+
         private RateGate _rateGateAccountTrades = new RateGate(200, TimeSpan.FromMinutes(1));
+        
         #endregion
 
         #region 11 Helpers
+
         public void SetDisconnected()
         {
             if (ServerStatus != ServerConnectStatus.Disconnect)
@@ -1823,6 +1863,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
         private void InvokeMyTradeEvent(MyTrade trade)
         {
             if (trade == null) return;
+            // Task.Run(GetPortfolios);  // Обновляем портфель, в апи нет потока с обновлениями портфеля
             if (string.IsNullOrEmpty(trade.NumberOrderParent)) return;
             // Fix Finam возвращает список всех трейдов за день
             // Выбираем только ещё необработанные
@@ -1836,11 +1877,13 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             MyTradeEvent?.Invoke(trade);
         }
+
         private HashSet<string> _processedMyTrades = new HashSet<string>();
 
         private void InvokeMyOrderEvent(Order order)
         {
             if (order == null) return;
+            Task.Run(GetPortfolios);  // Обновляем портфель, в апи нет потока с обновлениями портфеля
             if (order.NumberUser == 0) return;
             // Fix Finam возвращает список всех заявок за день
             // Выбираем только ещё необработанные
@@ -1856,6 +1899,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
                     )
                 {
+                    //Task.Run(GetPortfolios);
                     return;
                 }
             }
@@ -1870,8 +1914,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
 
             MyOrderEvent?.Invoke(order);
-            Task.Run(GetPortfolios); // Обновялем портфель, в апи нет потока с обновлениями портфеля
+            //Task.Run(GetPortfolios);
         }
+
         private Dictionary<int, OrderStateType> _processedOrders = new Dictionary<int, OrderStateType>();
 
         private void InvokeOrderFail(Order order)
@@ -1910,6 +1955,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 _ => FTimeFrame.Unspecified
             };
         }
+
         #endregion
 
         #region 12 Log
@@ -1920,12 +1966,16 @@ namespace OsEngine.Market.Servers.FinamGrpc
         }
 
         public event Action<string, LogMessageType> LogMessageEvent;
+
         public event Action<Funding> FundingUpdateEvent;
+
         public event Action<SecurityVolumes> Volume24hUpdateEvent;
+
         #endregion
 
-        #region 13 Структуры
-        // Для управления потоками чтения стримов
+        #region 13 Structures
+
+        // Управление потоками чтения стримов
         private class TradesStreamReaderInfo
         {
             //public MarketDataService.MarketDataServiceClient MarketDataClient;
@@ -1940,7 +1990,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
             public CancellationTokenSource CancellationTokenSource { get; set; }
             public Task ReaderTask { get; set; }
         }
-
 
         #endregion
     }
