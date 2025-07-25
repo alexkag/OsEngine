@@ -1,6 +1,6 @@
 ﻿using Google.Protobuf.Collections;
 using Google.Protobuf.WellKnownTypes;
-//using Google.Type;
+using Google.Type;
 using Grpc.Core;
 using Grpc.Net.Client;
 using Grpc.Tradeapi.V1;
@@ -12,9 +12,13 @@ using Grpc.Tradeapi.V1.Orders;
 using OsEngine.Entity;
 using OsEngine.Language;
 using OsEngine.Logging;
+using OsEngine.Market.Servers.Alor.Json;
 using OsEngine.Market.Servers.Entity;
+using OsEngine.Market.Servers.MoexFixFastSpot;
 using OsEngine.Market.Servers.Transaq.TransaqEntity;
+using RestSharp;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
@@ -22,19 +26,20 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Candle = OsEngine.Entity.Candle;
+using DateTime = System.DateTime;
 using FAsset = Grpc.Tradeapi.V1.Assets.Asset;
 using FOrder = Grpc.Tradeapi.V1.Orders.Order;
 using FPosition = Grpc.Tradeapi.V1.Accounts.Position;
 using FSide = Grpc.Tradeapi.V1.Side;
 using FTimeFrame = Grpc.Tradeapi.V1.Marketdata.TimeFrame;
 using FTrade = Grpc.Tradeapi.V1.Marketdata.Trade;
+using GTime = Google.Type.DateTime;
 using Order = OsEngine.Entity.Order;
 using Portfolio = OsEngine.Entity.Portfolio;
 using Security = OsEngine.Entity.Security;
 using Side = OsEngine.Entity.Side;
 using TimeFrame = OsEngine.Entity.TimeFrame;
 using Trade = OsEngine.Entity.Trade;
-using System.Collections.Concurrent;
 
 namespace OsEngine.Market.Servers.FinamGrpc
 {
@@ -325,35 +330,35 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 myPortfolio.UnrealizedPnl = getAccountResponse.UnrealizedProfit.Value.ToDecimal();
             }
 
-                //for (int i = 0; i < getAccountResponse.Cash.Count; i++)
-                //{
-                //    GoogleType.Money pos = getAccountResponse.Cash[i];
-                //    PositionOnBoard newPos = new PositionOnBoard();
+            //for (int i = 0; i < getAccountResponse.Cash.Count; i++)
+            //{
+            //    GoogleType.Money pos = getAccountResponse.Cash[i];
+            //    PositionOnBoard newPos = new PositionOnBoard();
 
-                //    newPos.PortfolioName = myPortfolio.Number;
-                //    newPos.SecurityNameCode = pos.CurrencyCode;
-                //    newPos.ValueCurrent = GetValue(pos);
-                //    //newPos.ValueBlocked = pos.Blocked / instrument.Instrument.Lot;
-                //    newPos.ValueBegin = newPos.ValueCurrent;
+            //    newPos.PortfolioName = myPortfolio.Number;
+            //    newPos.SecurityNameCode = pos.CurrencyCode;
+            //    newPos.ValueCurrent = GetValue(pos);
+            //    //newPos.ValueBlocked = pos.Blocked / instrument.Instrument.Lot;
+            //    newPos.ValueBegin = newPos.ValueCurrent;
 
-                //    myPortfolio.SetNewPosition(newPos);
-                //}
+            //    myPortfolio.SetNewPosition(newPos);
+            //}
 
-                for (int i = 0; i < getAccountResponse.Positions.Count; i++)
-                {
-                    FPosition pos = getAccountResponse.Positions[i];
-                    PositionOnBoard newPos = new PositionOnBoard();
+            for (int i = 0; i < getAccountResponse.Positions.Count; i++)
+            {
+                FPosition pos = getAccountResponse.Positions[i];
+                PositionOnBoard newPos = new PositionOnBoard();
 
-                    newPos.PortfolioName = myPortfolio.Number;
-                    newPos.SecurityNameCode = pos.Symbol;
-                    newPos.ValueCurrent = pos.Quantity.Value.ToDecimal();
-                    //newPos.ValueCurrent = pos.Quantity.Value.ToDecimal() * pos.CurrentPrice.Value.ToDecimal();
-                    //newPos.ValueBlocked = pos.Blocked / instrument.Instrument.Lot;
-                    newPos.ValueBegin = pos.Quantity.Value.ToDecimal();
-                    //newPos.ValueBegin = pos.Quantity.Value.ToDecimal() * pos.AveragePrice.Value.ToDecimal();
+                newPos.PortfolioName = myPortfolio.Number;
+                newPos.SecurityNameCode = pos.Symbol;
+                newPos.ValueCurrent = pos.Quantity.Value.ToDecimal();
+                //newPos.ValueCurrent = pos.Quantity.Value.ToDecimal() * pos.CurrentPrice.Value.ToDecimal();
+                //newPos.ValueBlocked = pos.Blocked / instrument.Instrument.Lot;
+                newPos.ValueBegin = pos.Quantity.Value.ToDecimal();
+                //newPos.ValueBegin = pos.Quantity.Value.ToDecimal() * pos.AveragePrice.Value.ToDecimal();
 
-                    myPortfolio.SetNewPosition(newPos);
-                }
+                myPortfolio.SetNewPosition(newPos);
+            }
 
         }
 
@@ -1623,8 +1628,20 @@ namespace OsEngine.Market.Servers.FinamGrpc
             if (orderUpdated == null) return OrderStateType.None;
 
             MyOrderEvent?.Invoke(orderUpdated);
-            // Событие, не через обработчик
-            //InvokeMyOrderEvent(orderUpdated);
+
+            if (orderUpdated.State == OrderStateType.Done
+                || orderUpdated.State == OrderStateType.Partial)
+            {
+                List<MyTrade> tradesForMyOrder
+                    = GetMyTradesForMyOrder(order, order.PortfolioNumber);
+
+                if (tradesForMyOrder == null) return orderUpdated.State;
+
+                for (int i = 0; i < tradesForMyOrder.Count; i++)
+                {
+                    MyTradeEvent?.Invoke(tradesForMyOrder[i]);
+                }
+            }
 
             return orderUpdated.State;
         }
@@ -1662,6 +1679,69 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
         }
 
+        private List<MyTrade> GetMyTradesForMyOrder(Order order, string portfolio)
+        {
+            TradesResponse tradesResponse = null;
+            _rateGateAccountTrades.WaitToProceed();
+            try
+            {
+                DateTime utcNow = DateTime.UtcNow;
+                DateTime start, end;
+                if (order.TimeCreate == DateTime.MinValue)
+                {
+                    // Start of today UTC
+                    start = new DateTime(utcNow.Year, utcNow.Month, utcNow.Day, 0, 0, 0, DateTimeKind.Utc);
+                }
+                else
+                {
+                    start = order.TimeCreate.AddSeconds(-30);
+                }
+                if (order.TimeDone == DateTime.MinValue)
+                {
+                    // End of today UTC
+                    end = new DateTime(utcNow.Year, utcNow.Month, utcNow.Day, 23, 59, 59, 999, DateTimeKind.Utc);
+                }
+                else
+                {
+                    end = order.TimeDone.AddSeconds(30);
+                }
+                var interval = new Interval
+                {
+                    StartTime = Timestamp.FromDateTime(DateTime.SpecifyKind(start.AddHours(-_timezoneOffset), DateTimeKind.Utc)),
+                    EndTime = Timestamp.FromDateTime(DateTime.SpecifyKind(end.AddHours(-_timezoneOffset), DateTimeKind.Utc))
+                };
+                tradesResponse = _accountsClient.Trades(new TradesRequest { AccountId = _accountId, Interval = interval, Limit = 100 }, _gRpcMetadata);
+
+                if (tradesResponse == null || tradesResponse.Trades.Count == 0) return null;
+
+                List<MyTrade> trades = new List<MyTrade>();
+
+                for (int i = 0; i < tradesResponse.Trades.Count; i++)
+                {
+                    MyTrade newTrade = ConvertToOSEngineTrade(tradesResponse.Trades[i]);
+
+                    // Add only related trades
+                    if (newTrade.NumberOrderParent == order.NumberMarket)
+                    {
+                        trades.Add(newTrade);
+                    }
+                }
+
+                return trades.Count > 0 ? trades : null;
+            }
+            catch (RpcException ex)
+            {
+                string message = GetGRPCErrorMessage(ex);
+                SendLogMessage($"Get trades for order request error. Info: {message}", LogMessageType.Error);
+            }
+            catch (Exception exception)
+            {
+                SendLogMessage($"Get get all orders request error: {exception.Message}", LogMessageType.Error);
+            }
+
+            return null;
+        }
+
         public void ChangeOrderPrice(Order order, decimal newPrice) { }
 
         public event Action<Order> MyOrderEvent;
@@ -1669,6 +1749,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
         private RateGate _rateGateMyOrderTradeCancelOrder = new RateGate(200, TimeSpan.FromMinutes(1));
         private RateGate _rateGateMyOrderTradeGetOrders = new RateGate(200, TimeSpan.FromMinutes(1));
         private RateGate _rateGateMyOrderTradeGetOrder = new RateGate(200, TimeSpan.FromMinutes(1));
+        private RateGate _rateGateAccountTrades = new RateGate(200, TimeSpan.FromMinutes(1));
         #endregion
 
         #region 11 Helpers
@@ -1860,7 +1941,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             public Task ReaderTask { get; set; }
         }
 
-       
+
         #endregion
     }
 }
