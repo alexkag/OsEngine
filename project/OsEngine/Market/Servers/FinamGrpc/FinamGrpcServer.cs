@@ -79,6 +79,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
             worker3.Name = "MyOrderTradeMessageReaderFinamGrpc";
             worker3.Start();
 
+            Thread worker3s = new Thread(MyOrderTradeKeepAlive);
+            worker3s.Name = "MyOrderTradeKeepAliveFinamGrpc";
+            worker3s.IsBackground = true;
+            worker3s.Start();
+
         }
 
         public void Connect(WebProxy proxy)
@@ -128,24 +133,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 SendLogMessage($"Error cancelling stream: {ex}", LogMessageType.Error);
             }
 
-            if (_myOrderTradeStream?.RequestStream != null)
-            {
-                try
-                {
-                    _myOrderTradeStream.RequestStream.CompleteAsync().Wait();
-                }
-                catch (ObjectDisposedException)
-                {
-                    // Already disposed, ignore
-                }
-                catch (Exception ex)
-                {
-                    SendLogMessage($"Error cancelling stream: {ex}", LogMessageType.Error);
-                }
-
-                SendLogMessage("Completed exchange with my orders and trades stream", LogMessageType.System);
-                _myOrderTradeStream = null;
-            }
+            disposeMyOrderTradeStream();
 
             SendLogMessage("Completed exchange with data streams (orderbook and trades)", LogMessageType.System);
 
@@ -174,7 +162,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
         public ServerConnectStatus ServerStatus { get; set; } = ServerConnectStatus.Disconnect;
 
         public List<IServerParameter> ServerParameters { get; set; }
-        
+
         #endregion
 
         #region 2 Properties
@@ -192,7 +180,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         //private readonly string _gRPCHost = "https://ftrr01.finam.ru:443";
         private readonly string _gRPCHost = "https://api.finam.ru:443"; // https://t.me/finam_trade_api/1/1751
-        
+
         #endregion
 
         #region 3 Securities
@@ -690,7 +678,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
         }
 
         private RateGate _rateGateAssetsGetAsset = new RateGate(200, TimeSpan.FromMinutes(1));
-        
+
         private RateGate _rateGateMarketDataOrderBook = new RateGate(200, TimeSpan.FromMinutes(1));
 
         private RateGate _rateGateMarketDataBars = new RateGate(200, TimeSpan.FromMinutes(1));
@@ -723,11 +711,41 @@ namespace OsEngine.Market.Servers.FinamGrpc
             _myOrderTradeClient = new OrdersService.OrdersServiceClient(_channel);
             _marketDataClient = new MarketDataService.MarketDataServiceClient(_channel);
 
+            // Получаем gwt токен
+            updateAuth(_authClient);
+
+            // Подписываемся на свои события
+            createMyOrderTradeStream();
+
+            SendLogMessage("All streams activated. State: connected.", LogMessageType.System);
+        }
+
+        private void disposeMyOrderTradeStream()
+        {
+            if (_myOrderTradeStream?.RequestStream != null)
+            {
+                try
+                {
+                    _myOrderTradeStream.RequestStream.CompleteAsync().Wait();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Already disposed, ignore
+                }
+                catch (Exception ex)
+                {
+                    SendLogMessage($"Error cancelling stream: {ex}", LogMessageType.Error);
+                }
+
+                SendLogMessage("Completed exchange with my orders and trades stream", LogMessageType.System);
+                _myOrderTradeStream = null;
+            }
+        }
+
+        private void createMyOrderTradeStream()
+        {
             try
             {
-                // Получаем gwt токен
-                updateAuth(_authClient);
-
                 // Подписка один раз
                 _rateGateMyOrderTradeSubscribeOrderTrade.WaitToProceed();
                 _myOrderTradeStream = _myOrderTradeClient.SubscribeOrderTrade(_gRpcMetadata, null, _cancellationTokenSource.Token);
@@ -742,8 +760,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 SendLogMessage($"Error while auth. Info: {ex}", LogMessageType.Error);
             }
-
-            SendLogMessage("All streams activated. Connect State", LogMessageType.System);
         }
 
         private void updateAuth(AuthService.AuthServiceClient client)
@@ -1188,11 +1204,51 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
         }
 
-        private async void MyOrderTradeMessageReader()
+        private void MyOrderTradeKeepAlive()
+        {
+            // Собственные заявки и сделки
+            // Повторящаяся подписка, так как нет пинга и поток отваливается без реанимации
+            while (_cancellationTokenSource == null)
+            {
+                Thread.Sleep(5000);
+            }
+
+            while (!_cancellationTokenSource.IsCancellationRequested)
+            {
+                Thread.Sleep(30000);
+                try
+                {
+                    if (_myOrderTradeStream != null)
+                    {
+                        _myOrderTradeStream.RequestStream.WriteAsync(new OrderTradeRequest { AccountId = _accountId, Action = OrderTradeRequest.Types.Action.Subscribe, DataType = OrderTradeRequest.Types.DataType.All });
+                    }
+                }
+                catch (RpcException exception)
+                {
+                    SendLogMessage($"RPC. MyOrderTrade keepalive failed: {exception.Message}", LogMessageType.Error);
+
+                    // need to reconnect everything
+                    //SetDisconnected();
+                    Thread.Sleep(5000);
+                }
+                catch (Exception exception)
+                {
+                    string msg = exception.ToString();
+                    SendLogMessage($"MyOrderTrade keepalive failed: {msg}", LogMessageType.Error);
+                    //if(((Exception)exception.InnerException).Status.Detail == "stream timeout")
+                    if (msg.Contains("stream timeout"))
+                    {
+                        disposeMyOrderTradeStream();
+                        createMyOrderTradeStream();
+                    }
+                    //break;
+                }
+            }
+        }
+
+        private void MyOrderTradeMessageReader()
         {
             Thread.Sleep(1000);
-
-            DateTime lastKeepAlive = DateTime.UtcNow;
 
             while (true)
             {
@@ -1210,24 +1266,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                         continue;
                     }
 
-                    // Keep Alive
-                    if ((DateTime.UtcNow - lastKeepAlive).TotalSeconds > 30)
-                    {
-                        try
-                        {
-                            await _myOrderTradeStream.RequestStream.WriteAsync(
-                                new OrderTradeRequest { AccountId = _accountId, Action = OrderTradeRequest.Types.Action.Subscribe, DataType = OrderTradeRequest.Types.DataType.All }
-                            );
-                            lastKeepAlive = DateTime.UtcNow;
-                        }
-                        catch (Exception ex)
-                        {
-                            SendLogMessage($"MyOrderTrade keepalive failed: {ex}", LogMessageType.Error);
-                            // Можно break или continue, по вашей логике
-                        }
-                    }
-
-                    if (await _myOrderTradeStream.ResponseStream.MoveNext() == false)
+                    if (_myOrderTradeStream.ResponseStream.MoveNext().Result == false)
                     {
                         Thread.Sleep(1);
                         continue;
@@ -1288,7 +1327,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
                 catch (Exception exception)
                 {
-                    SendLogMessage(exception.ToString(), LogMessageType.Error);
+                    string msg = exception.ToString();
+                    SendLogMessage(msg, LogMessageType.Error);
                     Thread.Sleep(5000);
                 }
             }
@@ -1773,7 +1813,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
         private RateGate _rateGateMyOrderTradeGetOrder = new RateGate(200, TimeSpan.FromMinutes(1));
 
         private RateGate _rateGateAccountTrades = new RateGate(200, TimeSpan.FromMinutes(1));
-        
+
         #endregion
 
         #region 11 Helpers
