@@ -19,7 +19,6 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
-using System.Threading.Tasks;
 using Candle = OsEngine.Entity.Candle;
 using DateTime = System.DateTime;
 using FAsset = Grpc.Tradeapi.V1.Assets.Asset;
@@ -109,11 +108,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
 
                 CreateStreamsConnection();
-                if (ServerStatus != ServerConnectStatus.Connect)
-                {
-                    ServerStatus = ServerConnectStatus.Connect;
-                    ConnectEvent?.Invoke();
-                }
+
+                SetСonnected();
             }
             catch (Exception ex)
             {
@@ -289,11 +285,13 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
             catch (RpcException ex)
             {
+                SetDisconnected();
                 string msg = GetGRPCErrorMessage(ex);
                 SendLogMessage($"Error loading portfolios. Info: {msg}", LogMessageType.Error);
             }
             catch (Exception ex)
             {
+                SetDisconnected();
                 SendLogMessage($"Error loading portfolios: {ex}", LogMessageType.Error);
             }
 
@@ -931,6 +929,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             _dicLatestTradesStreams[security.NameId] = streamReaderInfo;
         }
+
         private void StartOrderBookStream(Security security)
         {
             if (!_dicOrderBookStreams.TryAdd(security.NameId, null))
@@ -1266,7 +1265,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
                         continue;
                     }
 
-                    if (_myOrderTradeStream.ResponseStream.MoveNext().Result == false)
+                    bool hasNext = _myOrderTradeStream.ResponseStream.MoveNext().ConfigureAwait(false).GetAwaiter().GetResult();
+                    if (!hasNext)
                     {
                         Thread.Sleep(1);
                         continue;
@@ -1310,25 +1310,33 @@ namespace OsEngine.Market.Servers.FinamGrpc
                         }
                     }
                 }
-                catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+                catch (RpcException rpcEx) when (rpcEx.StatusCode == StatusCode.Cancelled)
                 {
                     // Handle the cancellation gracefully
-                    //string message = GetGRPCErrorMessage(ex);
+                    //string message = GetGRPCErrorMessage(rpcEx);
                     //SendLogMessage($"OrderTrade stream was cancelled: {message}", LogMessageType.System);
                     Thread.Sleep(5000);
                 }
-                catch (RpcException exception)
+                catch (RpcException rpcEx) when (rpcEx.StatusCode == StatusCode.Internal)
                 {
-                    SendLogMessage($"OrderTrade stream was disconnected: {exception.Message}", LogMessageType.Error);
+                    // Connection reset - attempt reconnect
+                    SendLogMessage($"OrderTrade stream connection reset. Try to reconnect.", LogMessageType.System);
+                    disposeMyOrderTradeStream();
+                    createMyOrderTradeStream();
+                }
+                catch (RpcException rpcEx)
+                {
+                    SendLogMessage($"OrderTrade stream was disconnected: {rpcEx.Message}", LogMessageType.Error);
 
                     // need to reconnect everything
                     //SetDisconnected();
                     Thread.Sleep(5000);
                 }
-                catch (Exception exception)
+                catch (Exception ex)
                 {
-                    string msg = exception.ToString();
-                    SendLogMessage(msg, LogMessageType.Error);
+                    SendLogMessage("OrderTrade stream error. Reason: " + ex.Message, LogMessageType.Error);
+                    string msg = ex.ToString();
+                    SendLogMessage("OrderTrade stream error. Reason: " + msg, LogMessageType.System);
                     Thread.Sleep(5000);
                 }
             }
@@ -1380,6 +1388,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
             };
 
             Security security = GetSecurity(fOrder.Symbol);
+            if( security == null )
+            {
+                SendLogMessage($"Can't find security for : {fOrder.Symbol}", LogMessageType.Error);
+                return null;
+            }
             myOrder.SecurityNameCode = security?.Name ?? fOrder.Symbol;
             myOrder.SecurityClassCode = security.NameClass;
             myOrder.Side = GetSide(fOrder.Side);
@@ -1487,6 +1500,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
             while (true)
             {
                 Thread.Sleep(ms);
+
+                if(_authClient == null || _myOrderTradeClient == null) continue;
+
                 updateAuth(_authClient);
 
                 _rateGateMyOrderTradeSubscribeOrderTrade.WaitToProceed();
@@ -1569,7 +1585,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 order.TimeDone = orderState.AcceptAt.ToDateTime();
             }
             //MyOrderEvent?.Invoke(order);
-            //InvokeMyOrderEvent(order);
+            InvokeMyOrderEvent(order);
         }
 
         public void GetAllActivOrders()
@@ -1581,11 +1597,13 @@ namespace OsEngine.Market.Servers.FinamGrpc
             for (int i = 0; orders != null && i < orders.Count; i++)
             {
                 if (orders[i] == null) continue;
-                if (orders[i].State == OrderStateType.Fail
-                    || orders[i].State == OrderStateType.Done
-                    || orders[i].State == OrderStateType.Cancel
-                    || orders[i].State == OrderStateType.None
-                    ) continue;
+                if (orders[i].State != OrderStateType.Active
+                    && orders[i].State != OrderStateType.Partial
+                    && orders[i].State != OrderStateType.Pending)
+                {
+                    continue;
+                }
+
                 InvokeMyOrderEvent(orders[i]);
                 //MyOrderEvent?.Invoke(orders[i]);
             }
@@ -1595,7 +1613,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
         {
             while (_securities == null || _securities.Count == 0)
             {
-                Task.Delay(50);
+                Thread.Sleep(50);
             }
 
             OrdersResponse ordersResponse = null;
@@ -1827,6 +1845,15 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
         }
 
+        public void SetСonnected()
+        {
+            if (ServerStatus != ServerConnectStatus.Connect)
+            {
+                ServerStatus = ServerConnectStatus.Connect;
+                ConnectEvent?.Invoke();
+            }
+        }
+
         private string GetGRPCErrorMessage(RpcException ex)
         {
             return string.Format("{0}: {1}", ex.Status.StatusCode, ex.Status.Detail);
@@ -1885,38 +1912,62 @@ namespace OsEngine.Market.Servers.FinamGrpc
         }
 
 
+        //private void InvokeMyTradeEvent(MyTrade trade)
+        //{
+        //    if (trade == null) return;
+        //    // Task.Run(GetPortfolios);  // Обновляем портфель, в апи нет потока с обновлениями портфеля
+        //    if (string.IsNullOrEmpty(trade.NumberOrderParent)) return;
+        //    // Fix Finam возвращает список всех трейдов за день
+        //    // Выбираем только ещё необработанные
+        //    MyTrade processedMyTrade;
+        //    if (_processedMyTrades.Contains(trade.NumberTrade))
+        //    {
+        //        return;
+        //    }
+
+        //    _processedMyTrades.Add(trade.NumberTrade);
+
+        //    MyTradeEvent?.Invoke(trade);
+        //}
+
+        //private HashSet<string> _processedMyTrades = new HashSet<string>();
+
+
+        private readonly ConcurrentDictionary<string, byte> _processedMyTrades = new ConcurrentDictionary<string, byte>();
+
         private void InvokeMyTradeEvent(MyTrade trade)
         {
-            if (trade == null) return;
-            // Task.Run(GetPortfolios);  // Обновляем портфель, в апи нет потока с обновлениями портфеля
-            if (string.IsNullOrEmpty(trade.NumberOrderParent)) return;
-            // Fix Finam возвращает список всех трейдов за день
-            // Выбираем только ещё необработанные
-            MyTrade processedMyTrade;
-            if (_processedMyTrades.Contains(trade.NumberTrade))
+            // Early exit for invalid trades
+            if (trade == null || string.IsNullOrEmpty(trade.NumberOrderParent))
             {
                 return;
             }
 
-            _processedMyTrades.Add(trade.NumberTrade);
+            // Try to add the trade ID (thread-safe operation)
+            // Returns true if the ID wasn't present and was added
+            if (_processedMyTrades.TryAdd(trade.NumberTrade, 0))
+            {
+                // Only invoke the event if this is a new trade
+                MyTradeEvent?.Invoke(trade);
+            }
 
-            MyTradeEvent?.Invoke(trade);
+            // Note: Uncomment if you need portfolio updates
+            // Task.Run(GetPortfolios);
         }
-
-        private HashSet<string> _processedMyTrades = new HashSet<string>();
 
         private void InvokeMyOrderEvent(Order order)
         {
             if (order == null) return;
-            Task.Run(GetPortfolios);  // Обновляем портфель, в апи нет потока с обновлениями портфеля
-            if (order.NumberUser == 0) return;
+            GetPortfolios();  // Обновляем портфель, в апи нет потока с обновлениями портфеля
+            if (string.IsNullOrEmpty(order.NumberMarket)) return;
             // Fix Finam возвращает список всех заявок за день
-            // Выбираем только ещё необработанные
+            // Выбираем только ещё нео бработанные
             OrderStateType processedOrderState;
 
-            if (_processedOrders.TryGetValue(order.NumberUser, out processedOrderState))
+            if (_processedOrders.TryGetValue(order.NumberMarket, out processedOrderState))
             {
-                if (processedOrderState == order.State
+                if ((processedOrderState == order.State
+                    && processedOrderState != OrderStateType.Partial)
                     // Final states
                     || processedOrderState == OrderStateType.Done
                     || processedOrderState == OrderStateType.Cancel
@@ -1924,25 +1975,28 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
                     )
                 {
-                    //Task.Run(GetPortfolios);
+                    // Skip order processing
                     return;
                 }
             }
 
-            if (_processedOrders.ContainsKey(order.NumberUser))
-            {
-                _processedOrders[order.NumberUser] = order.State;
-            }
-            else
-            {
-                _processedOrders.Add(order.NumberUser, order.State);
-            }
+            //if (_processedOrders.ContainsKey(order.NumberUser))
+            //{
+            //    _processedOrders[order.NumberUser] = order.State;
+            //}
+            //else
+            //{
+            //    _processedOrders.Add(order.NumberUser, order.State);
+            //}
+
+            _processedOrders.AddOrUpdate(order.NumberMarket, order.State, (key, oldValue) => order.State);
 
             MyOrderEvent?.Invoke(order);
             //Task.Run(GetPortfolios);
         }
 
-        private Dictionary<int, OrderStateType> _processedOrders = new Dictionary<int, OrderStateType>();
+        //private Dictionary<int, OrderStateType> _processedOrders = new Dictionary<int, OrderStateType>();
+        private readonly ConcurrentDictionary<string, OrderStateType> _processedOrders = new ConcurrentDictionary<string, OrderStateType>();
 
         private void InvokeOrderFail(Order order)
         {
