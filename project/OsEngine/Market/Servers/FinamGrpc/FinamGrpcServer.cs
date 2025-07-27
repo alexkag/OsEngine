@@ -1388,7 +1388,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             };
 
             Security security = GetSecurity(fOrder.Symbol);
-            if( security == null )
+            if (security == null)
             {
                 SendLogMessage($"Can't find security for : {fOrder.Symbol}", LogMessageType.Error);
                 return null;
@@ -1501,7 +1501,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 Thread.Sleep(ms);
 
-                if(_authClient == null || _myOrderTradeClient == null) continue;
+                if (_authClient == null || _myOrderTradeClient == null) continue;
 
                 updateAuth(_authClient);
 
@@ -1703,7 +1703,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
             Order orderUpdated = ConvertToOSEngineOrder(orderResponse);
             if (orderUpdated == null) return OrderStateType.None;
 
-            MyOrderEvent?.Invoke(orderUpdated);
+            if (!InvokeMyOrderEvent(orderUpdated))
+            {
+                MyOrderEvent?.Invoke(orderUpdated);
+            }
 
             if (orderUpdated.State == OrderStateType.Done
                 || orderUpdated.State == OrderStateType.Partial)
@@ -1955,11 +1958,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
             // Task.Run(GetPortfolios);
         }
 
-        private void InvokeMyOrderEvent(Order order)
+        private bool InvokeMyOrderEvent(Order order)
         {
-            if (order == null) return;
+            if (order == null) return false;
             GetPortfolios();  // Обновляем портфель, в апи нет потока с обновлениями портфеля
-            if (string.IsNullOrEmpty(order.NumberMarket)) return;
+            if (string.IsNullOrEmpty(order.NumberMarket)) return false;
             // Fix Finam возвращает список всех заявок за день
             // Выбираем только ещё нео бработанные
             OrderStateType processedOrderState;
@@ -1976,7 +1979,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     )
                 {
                     // Skip order processing
-                    return;
+                    return false;
                 }
             }
 
@@ -1992,7 +1995,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             _processedOrders.AddOrUpdate(order.NumberMarket, order.State, (key, oldValue) => order.State);
 
             MyOrderEvent?.Invoke(order);
-            //Task.Run(GetPortfolios);
+            return true;
         }
 
         //private Dictionary<int, OrderStateType> _processedOrders = new Dictionary<int, OrderStateType>();
