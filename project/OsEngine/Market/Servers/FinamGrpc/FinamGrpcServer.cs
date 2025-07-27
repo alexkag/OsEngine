@@ -13,6 +13,7 @@ using OsEngine.Entity;
 using OsEngine.Language;
 using OsEngine.Logging;
 using OsEngine.Market.Servers.Entity;
+using OsEngine.Market.Servers.MoexFixFastSpot;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -1706,23 +1707,24 @@ namespace OsEngine.Market.Servers.FinamGrpc
             Order orderUpdated = ConvertToOSEngineOrder(orderResponse);
             if (orderUpdated == null) return OrderStateType.None;
 
-            if (!InvokeMyOrderEvent(orderUpdated))
-            {
-                MyOrderEvent?.Invoke(orderUpdated);
-            }
-
             if (orderUpdated.State == OrderStateType.Done
                 || orderUpdated.State == OrderStateType.Partial)
             {
                 List<MyTrade> tradesForMyOrder
-                    = GetMyTradesForMyOrder(order, order.PortfolioNumber);
+                    = GetMyTradesForMyOrder(order);
 
-                if (tradesForMyOrder == null) return orderUpdated.State;
-
-                for (int i = 0; i < tradesForMyOrder.Count; i++)
+                if (tradesForMyOrder != null)
                 {
-                    MyTradeEvent?.Invoke(tradesForMyOrder[i]);
+                    for (int i = 0; i < tradesForMyOrder.Count; i++)
+                    {
+                        InvokeMyTradeEvent(tradesForMyOrder[i]);
+                    }
                 }
+            }
+
+            if (!InvokeMyOrderEvent(orderUpdated))
+            {
+                MyOrderEvent?.Invoke(orderUpdated);
             }
 
             return orderUpdated.State;
@@ -1761,7 +1763,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
         }
 
-        private List<MyTrade> GetMyTradesForMyOrder(Order order, string portfolio)
+        private List<MyTrade> GetMyTradesForMyOrder(Order order)
         {
             TradesResponse tradesResponse = null;
             _rateGateAccountTrades.WaitToProceed();
@@ -1943,7 +1945,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         private void InvokeMyTradeEvent(MyTrade trade)
         {
-            // Early exit for invalid trades
             if (trade == null || string.IsNullOrEmpty(trade.NumberOrderParent))
             {
                 return;
@@ -1968,9 +1969,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
             if (string.IsNullOrEmpty(order.NumberMarket)) return false;
             // Fix Finam возвращает список всех заявок за день
             // Выбираем только ещё нео бработанные
-            OrderStateType processedOrderState;
 
-            if (_processedOrders.TryGetValue(order.NumberMarket, out processedOrderState))
+            if (_processedOrders.TryGetValue(order.NumberMarket, out OrderStateType processedOrderState))
             {
                 if ((processedOrderState == order.State
                     && processedOrderState != OrderStateType.Partial)
@@ -1986,16 +1986,50 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
             }
 
-            //if (_processedOrders.ContainsKey(order.NumberUser))
-            //{
-            //    _processedOrders[order.NumberUser] = order.State;
-            //}
-            //else
-            //{
-            //    _processedOrders.Add(order.NumberUser, order.State);
-            //}
-
             _processedOrders.AddOrUpdate(order.NumberMarket, order.State, (key, oldValue) => order.State);
+
+            if (order.State == OrderStateType.Done
+                || order.State == OrderStateType.Partial)
+            {
+                List<MyTrade> tradesForMyOrder
+                    = GetMyTradesForMyOrder(order);
+
+                if (tradesForMyOrder != null)
+                {
+                    for (int i = 0; i < tradesForMyOrder.Count; i++)
+                    {
+                        InvokeMyTradeEvent(tradesForMyOrder[i]);
+                    }
+                }
+                else
+                {
+                    // Содаем фейковый трейд
+                    // Особенность АПИ (трейды могу запаздывать относительно ордеров)
+                    MyTrade trade = new MyTrade();
+                    trade.Volume = order.Volume;
+                    trade.Price = order.Price;
+                    if (order.Volume > 0)
+                    {
+                        trade.Side = order.Side;
+                    }
+                    else
+                    {
+                        if (order.Side == Side.Buy)
+                        {
+                            trade.Side = Side.Sell;
+                        }
+                        else if (order.Side == Side.Sell)
+                        {
+                            trade.Side = Side.Buy;
+                        }
+                    }
+                    trade.NumberTrade = "0";
+                    trade.NumberOrderParent = order.NumberMarket;
+                    trade.SecurityNameCode = order.SecurityNameCode; // TODO Баг АПИ (Не содержит названия биржи) "Symbol": "VTBR@MISX" - должно быть, есть "Symbol": "VTBR"
+                    trade.Time = order.TimeCallBack;
+                    InvokeMyTradeEvent(trade);
+                }
+            }
 
             MyOrderEvent?.Invoke(order);
             return true;
