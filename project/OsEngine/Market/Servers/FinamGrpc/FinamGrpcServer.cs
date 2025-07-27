@@ -19,6 +19,7 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
+using System.Windows.Interop;
 using Candle = OsEngine.Entity.Candle;
 using DateTime = System.DateTime;
 using FAsset = Grpc.Tradeapi.V1.Assets.Asset;
@@ -113,7 +114,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
             catch (Exception ex)
             {
-                SendLogMessage($"Error connecting to server: {ex}", LogMessageType.Error);
+                SendLogMessage($"Error connecting to server: {ex.Message}", LogMessageType.Error);
                 //SetDisconnected();
             }
         }
@@ -126,7 +127,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
             catch (Exception ex)
             {
-                SendLogMessage($"Error cancelling stream: {ex}", LogMessageType.Error);
+                SendLogMessage($"Error cancelling stream: {ex.Message}", LogMessageType.Error);
             }
 
             disposeMyOrderTradeStream();
@@ -197,7 +198,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
             catch (Exception ex)
             {
-                SendLogMessage($"Error loading securities: {ex}", LogMessageType.Error);
+                SendLogMessage($"Error loading securities: {ex.Message}", LogMessageType.Error);
             }
 
             UpdateSecuritiesFromServer(assetsResponse);
@@ -259,9 +260,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
 
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                SendLogMessage($"Error loading currency pairs: {e.Message}", LogMessageType.Error);
+                SendLogMessage($"Error loading currency pairs: {ex.Message}", LogMessageType.Error);
             }
         }
 
@@ -292,7 +293,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             catch (Exception ex)
             {
                 SetDisconnected();
-                SendLogMessage($"Error loading portfolios: {ex}", LogMessageType.Error);
+                SendLogMessage($"Error loading portfolios: {ex.Message}", LogMessageType.Error);
             }
 
             GetPortfolios(getAccountResponse);
@@ -458,7 +459,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
             catch (Exception ex)
             {
-                SendLogMessage($"Error getting candles for {security.Name}: " + ex.ToString(), LogMessageType.Error);
+                SendLogMessage($"Error getting candles for {security.Name}: {ex.Message}", LogMessageType.Error);
             }
 
             List<Candle> candles = ConvertToOsEngineCandles(resp);
@@ -545,7 +546,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
             catch (Exception ex)
             {
-                SendLogMessage($"Error loading security [{security.NameId}] params: {ex}", LogMessageType.Error);
+                SendLogMessage($"Error loading security [{security.NameId}] params: {ex.Message}", LogMessageType.Error);
             }
 
             // Получаем доп инфо по тикеру (лимит 60 запросов в минуту)
@@ -564,7 +565,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             //}
             //catch (Exception ex)
             //{
-            //    SendLogMessage($"Error loading securities: {ex}", LogMessageType.Error);
+            //    SendLogMessage($"Error loading securities: {ex.Message}", LogMessageType.Error);
             //}
         }
 
@@ -624,7 +625,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
             catch (Exception ex)
             {
-                SendLogMessage($"Error getting Market Depth for {security.Name}: " + ex.ToString(), LogMessageType.Error);
+                SendLogMessage($"Error getting Market Depth for {security.Name}: {ex.Message}", LogMessageType.Error);
             }
 
             return depth;
@@ -641,11 +642,11 @@ namespace OsEngine.Market.Servers.FinamGrpc
             catch (RpcException rpcEx)
             {
                 string msg = GetGRPCErrorMessage(rpcEx);
-                SendLogMessage($"Error while getting latest trades: {msg}", LogMessageType.Error);
+                SendLogMessage($"Error while getting latest trades data: {msg}", LogMessageType.Error);
             }
-            catch (Exception exception)
+            catch (Exception ex)
             {
-                SendLogMessage(exception.ToString(), LogMessageType.Error);
+                SendLogMessage($"Error while getting latest trades data: {ex.Message}", LogMessageType.Error);
             }
 
             if (resp == null || resp.Trades.Count == 0)
@@ -733,10 +734,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
                 catch (Exception ex)
                 {
-                    SendLogMessage($"Error cancelling stream: {ex}", LogMessageType.Error);
+                    SendLogMessage($"Error cancelling stream: {ex.Message}", LogMessageType.Error);
                 }
 
-                SendLogMessage("Completed exchange with my orders and trades stream", LogMessageType.System);
+                SendLogMessage("Disconnected exchange with my orders and trades stream.", LogMessageType.System);
                 _myOrderTradeStream = null;
             }
         }
@@ -757,7 +758,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
             catch (Exception ex)
             {
-                SendLogMessage($"Error while auth. Info: {ex}", LogMessageType.Error);
+                SendLogMessage($"Error while auth. Info: {ex.Message}", LogMessageType.Error);
             }
         }
 
@@ -858,7 +859,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
             catch (Exception ex)
             {
-                SendLogMessage(ex.ToString(), LogMessageType.Error);
+                SendLogMessage($"Error subscribe security {security.Name}. {ex.Message}", LogMessageType.Error);
             }
         }
 
@@ -876,12 +877,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
             catch (RpcException rpcEx)
             {
-                string msg = GetGRPCErrorMessage(ex);
+                string msg = GetGRPCErrorMessage(rpcEx);
                 SendLogMessage($"Error subscribe security {security.Name}. Info: {msg}", LogMessageType.Error);
             }
             catch (Exception ex)
             {
-                SendLogMessage(ex.ToString(), LogMessageType.Error);
+                SendLogMessage($"Error subscribe security {security.Name}. {ex.Message}", LogMessageType.Error);
             }
         }
 
@@ -1232,13 +1233,13 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     //SetDisconnected();
                     Thread.Sleep(5000);
                 }
-                catch (Exception exception)
+                catch (Exception ex)
                 {
-                    string msg = exception.ToString();
-                    SendLogMessage($"MyOrderTrade keepalive failed: {msg}", LogMessageType.Error);
-                    //if(((Exception)exception.InnerException).Status.Detail == "stream timeout")
+                    SendLogMessage($"MyOrderTrade keepalive failed: {ex.Message}. Try to reconnect.", LogMessageType.Error);
+                    string msg = ex.ToString();
                     if (msg.Contains("stream timeout"))
                     {
+                        Thread.Sleep(5000);
                         disposeMyOrderTradeStream();
                         createMyOrderTradeStream();
                     }
@@ -1337,9 +1338,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
                 catch (Exception ex)
                 {
-                    SendLogMessage("OrderTrade stream error. Reason: " + ex.Message, LogMessageType.Error);
-                    string msg = ex.ToString();
-                    SendLogMessage("OrderTrade stream error. Reason: " + msg, LogMessageType.System);
+                    SendLogMessage($"OrderTrade stream error. Reason: {ex.Message}", LogMessageType.Error);
+                    //SendLogMessage($"OrderTrade stream error. Reason: {ex}", LogMessageType.System);
                     Thread.Sleep(5000);
                 }
             }
@@ -1480,15 +1480,15 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
                 catch (RpcException rpcEx)
                 {
+                    SetDisconnected(); // TODO check
                     string msg = GetGRPCErrorMessage(rpcEx);
                     SendLogMessage($"Error while get time from FinamGrpc. Info: {msg}", LogMessageType.Error);
-                    //SetDisconnected();
                     Thread.Sleep(1000);
                 }
-                catch (Exception error)
+                catch (Exception ex)
                 {
-                    //SetDisconnected();
-                    SendLogMessage(error.ToString(), LogMessageType.Error);
+                    SetDisconnected();  // TODO check
+                    SendLogMessage($"Error while get time from FinamGrpc. {ex.Message}", LogMessageType.Error);
                     Thread.Sleep(1000);
                 }
             }
@@ -1555,9 +1555,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 InvokeOrderFail(order);
                 return;
             }
-            catch (Exception exception)
+            catch (Exception ex)
             {
-                SendLogMessage($"Error on order execution: {exception.Message}", LogMessageType.Error);
+                SendLogMessage($"Error on order execution: {ex.Message}", LogMessageType.Error);
                 InvokeOrderFail(order);
                 return;
             }
@@ -1631,9 +1631,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 SendLogMessage($"Get all orders request error. Info: {msg}", LogMessageType.Error);
                 return null;
             }
-            catch (Exception exception)
+            catch (Exception ex)
             {
-                SendLogMessage($"Get get all orders request error: {exception.Message}", LogMessageType.Error);
+                SendLogMessage($"Get get all orders request error: {ex.Message}", LogMessageType.Error);
                 return null;
             }
 
@@ -1664,9 +1664,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 SendLogMessage($"Cancel order request error. Info: {msg}", LogMessageType.Error);
                 return false;
             }
-            catch (Exception exception)
+            catch (Exception ex)
             {
-                SendLogMessage($"Cancel order request error: {exception.Message}", LogMessageType.Error);
+                SendLogMessage($"Cancel order request error: {ex.Message}", LogMessageType.Error);
                 return false;
             }
 
@@ -1695,9 +1695,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 SendLogMessage($"Get all orders request error. Info: {msg}", LogMessageType.Error);
                 return OrderStateType.None;
             }
-            catch (Exception exception)
+            catch (Exception ex)
             {
-                SendLogMessage($"Get all orders request error: {exception.Message}", LogMessageType.Error);
+                SendLogMessage($"Get all orders request error: {ex.Message}", LogMessageType.Error);
                 return OrderStateType.None;
             }
 
@@ -1816,9 +1816,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 string msg = GetGRPCErrorMessage(rpcEx);
                 SendLogMessage($"Get trades for order request error. Info: {msg}", LogMessageType.Error);
             }
-            catch (Exception exception)
+            catch (Exception ex)
             {
-                SendLogMessage($"Get get all orders request error: {exception.Message}", LogMessageType.Error);
+                SendLogMessage($"Get get all orders request error: {ex.Message}", LogMessageType.Error);
             }
 
             return null;
@@ -2045,9 +2045,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         #region 12 Log
 
-        private void SendLogMessage(string message, LogMessageType messageType)
+        private void SendLogMessage(string msg, LogMessageType msgType)
         {
-            LogMessageEvent?.Invoke(message, messageType);
+            LogMessageEvent?.Invoke(msg, msgType);
         }
 
         public event Action<string, LogMessageType> LogMessageEvent;
