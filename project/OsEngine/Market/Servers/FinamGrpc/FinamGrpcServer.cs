@@ -190,9 +190,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 assetsResponse = _assetsClient.Assets(new AssetsRequest(), headers: _gRpcMetadata);
             }
-            catch (RpcException ex)
+            catch (RpcException rpcEx)
             {
-                string msg = GetGRPCErrorMessage(ex);
+                string msg = GetGRPCErrorMessage(rpcEx);
                 SendLogMessage($"Error loading securities. Info: {msg}", LogMessageType.Error);
             }
             catch (Exception ex)
@@ -283,10 +283,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 getAccountResponse = _accountsClient.GetAccount(new GetAccountRequest { AccountId = _accountId }, headers: _gRpcMetadata);
             }
-            catch (RpcException ex)
+            catch (RpcException rpcEx)
             {
                 SetDisconnected();
-                string msg = GetGRPCErrorMessage(ex);
+                string msg = GetGRPCErrorMessage(rpcEx);
                 SendLogMessage($"Error loading portfolios. Info: {msg}", LogMessageType.Error);
             }
             catch (Exception ex)
@@ -451,10 +451,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 _rateGateMarketDataBars.WaitToProceed();
                 resp = _marketDataClient.Bars(req, _gRpcMetadata);
             }
-            catch (RpcException ex)
+            catch (RpcException rpcEx)
             {
-                string message = GetGRPCErrorMessage(ex);
-                SendLogMessage($"Error getting candles for {security.Name}. Info: {message}", LogMessageType.Error);
+                string msg = GetGRPCErrorMessage(rpcEx);
+                SendLogMessage($"Error getting candles for {security.Name}. Info: {msg}", LogMessageType.Error);
             }
             catch (Exception ex)
             {
@@ -538,10 +538,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     security.State = getAssetParamsResponse.Tradeable ? SecurityStateType.Activ : SecurityStateType.Close;
                 }
             }
-            catch (RpcException ex)
+            catch (RpcException rpcEx)
             {
-                string message = GetGRPCErrorMessage(ex);
-                SendLogMessage($"Error loading security [{security.NameId}] params. Info: {message}", LogMessageType.Error);
+                string msg = GetGRPCErrorMessage(rpcEx);
+                SendLogMessage($"Error loading security [{security.NameId}] params. Info: {msg}", LogMessageType.Error);
             }
             catch (Exception ex)
             {
@@ -557,10 +557,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
             //        new GetAssetParamsRequest { AccountId = _accountId, Symbol = item.Symbol },
             //        headers: _gRpcMetadata);
             //}
-            //catch (RpcException ex)
+            //catch (RpcException rpcEx)
             //{
-            //    string message = GetGRPCErrorMessage(ex);
-            //    SendLogMessage($"Error loading securities. Info: {message}", LogMessageType.Error);
+            //    string msg = GetGRPCErrorMessage(rpcEx);
+            //    SendLogMessage($"Error loading securities. Info: {msg}", LogMessageType.Error);
             //}
             //catch (Exception ex)
             //{
@@ -617,10 +617,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
                 _dicLastMdTime[security.NameId] = depth.Time;
             }
-            catch (RpcException ex)
+            catch (RpcException rpcEx)
             {
-                string message = GetGRPCErrorMessage(ex);
-                SendLogMessage($"Error getting Market Depth for {security.Name}. Info: {message}", LogMessageType.Error);
+                string msg = GetGRPCErrorMessage(rpcEx);
+                SendLogMessage($"Error getting Market Depth for {security.Name}. Info: {msg}", LogMessageType.Error);
             }
             catch (Exception ex)
             {
@@ -638,9 +638,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 resp = _marketDataClient.LatestTrades(new LatestTradesRequest { Symbol = security.NameId }, _gRpcMetadata);
             }
-            catch (RpcException exception)
+            catch (RpcException rpcEx)
             {
-                SendLogMessage($"Error while getting latest trades: {exception.Message}", LogMessageType.Error);
+                string msg = GetGRPCErrorMessage(rpcEx);
+                SendLogMessage($"Error while getting latest trades: {msg}", LogMessageType.Error);
             }
             catch (Exception exception)
             {
@@ -748,9 +749,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 _rateGateMyOrderTradeSubscribeOrderTrade.WaitToProceed();
                 _myOrderTradeStream = _myOrderTradeClient.SubscribeOrderTrade(_gRpcMetadata, null, _cancellationTokenSource.Token);
             }
-            catch (RpcException ex)
+            catch (RpcException rpcEx)
             {
-                string msg = GetGRPCErrorMessage(ex);
+                string msg = GetGRPCErrorMessage(rpcEx);
                 SendLogMessage($"gRPC Error while auth. Info: {msg}", LogMessageType.Error);
                 return;
             }
@@ -850,10 +851,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
 
             }
-            catch (RpcException ex)
+            catch (RpcException rpcEx)
             {
-                string message = GetGRPCErrorMessage(ex);
-                SendLogMessage($"Error subscribe security {security.Name}. Info: {message}", LogMessageType.Error);
+                string msg = GetGRPCErrorMessage(rpcEx);
+                SendLogMessage($"Error subscribe security {security.Name}. Info: {msg}", LogMessageType.Error);
             }
             catch (Exception ex)
             {
@@ -873,10 +874,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 ReconnectLatestTradesStream(security);
                 ReconnectOrderBookStream(security);
             }
-            catch (RpcException ex)
+            catch (RpcException rpcEx)
             {
-                string message = GetGRPCErrorMessage(ex);
-                SendLogMessage($"Error subscribe security {security.Name}. Info: {message}", LogMessageType.Error);
+                string msg = GetGRPCErrorMessage(ex);
+                SendLogMessage($"Error subscribe security {security.Name}. Info: {msg}", LogMessageType.Error);
             }
             catch (Exception ex)
             {
@@ -1222,9 +1223,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
                         _myOrderTradeStream.RequestStream.WriteAsync(new OrderTradeRequest { AccountId = _accountId, Action = OrderTradeRequest.Types.Action.Subscribe, DataType = OrderTradeRequest.Types.DataType.All });
                     }
                 }
-                catch (RpcException exception)
+                catch (RpcException rpcEx)
                 {
-                    SendLogMessage($"RPC. MyOrderTrade keepalive failed: {exception.Message}", LogMessageType.Error);
+                    string msg = GetGRPCErrorMessage(rpcEx);
+                    SendLogMessage($"RPC. MyOrderTrade keepalive failed. {msg}", LogMessageType.Error);
 
                     // need to reconnect everything
                     //SetDisconnected();
@@ -1326,7 +1328,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
                 catch (RpcException rpcEx)
                 {
-                    SendLogMessage($"OrderTrade stream was disconnected: {rpcEx.Message}", LogMessageType.Error);
+                    string msg = GetGRPCErrorMessage(rpcEx);
+                    SendLogMessage($"OrderTrade stream was disconnected. {msg}", LogMessageType.Error);
 
                     // need to reconnect everything
                     //SetDisconnected();
@@ -1452,32 +1455,32 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     ServerTime = resp.Timestamp.ToDateTime();
                     Thread.Sleep(3000); // Sleep2
                 }
-                catch (RpcException ex) when (ex.StatusCode == StatusCode.Cancelled)
+                catch (RpcException rpcEx) when (rpcEx.StatusCode == StatusCode.Cancelled)
                 {
                     // Handle the cancellation gracefully
-                    //string message = GetGRPCErrorMessage(ex);
+                    //string message = GetGRPCErrorMessage(rpcEx);
                     //SendLogMessage($"Keep Alive stream was cancelled: {message}", LogMessageType.System);
                     Thread.Sleep(5000);
                 }
-                catch (RpcException ex) when (ex.StatusCode == StatusCode.Internal)
+                catch (RpcException rpcEx) when (rpcEx.StatusCode == StatusCode.Internal)
                 {
-                    string message = GetGRPCErrorMessage(ex);
-                    if (ex.Status.ToString().Contains("Token is expired"))
+                    string msg = GetGRPCErrorMessage(rpcEx);
+                    if (rpcEx.Status.ToString().Contains("Token is expired"))
                     {
                         //string message = GetGRPCErrorMessage(ex);
-                        SendLogMessage($"Token is expired: {message}", LogMessageType.Error);
+                        SendLogMessage($"Token is expired. {msg}", LogMessageType.Error);
                         // TODO RECONNECT!!!
                     }
                     else
                     {
-                        SendLogMessage($"Keep Alive stream error: {message}", LogMessageType.Error);
+                        SendLogMessage($"Keep Alive stream error. {msg}", LogMessageType.Error);
                     }
                     //SetDisconnected();
                     Thread.Sleep(1000);
                 }
-                catch (RpcException ex)
+                catch (RpcException rpcEx)
                 {
-                    string msg = GetGRPCErrorMessage(ex);
+                    string msg = GetGRPCErrorMessage(rpcEx);
                     SendLogMessage($"Error while get time from FinamGrpc. Info: {msg}", LogMessageType.Error);
                     //SetDisconnected();
                     Thread.Sleep(1000);
@@ -1544,10 +1547,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 orderState = _myOrderTradeClient.PlaceOrder(fOrder, _gRpcMetadata);
             }
-            catch (RpcException ex)
+            catch (RpcException rpcEx)
             {
-                string message = GetGRPCErrorMessage(ex);
-                SendLogMessage($"Error place order. Info: {message}", LogMessageType.Error);
+                string msg = GetGRPCErrorMessage(rpcEx);
+                SendLogMessage($"Error place order. Info: {msg}", LogMessageType.Error);
                 //order.Comment = message;
                 InvokeOrderFail(order);
                 return;
@@ -1622,10 +1625,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 ordersResponse = _myOrderTradeClient.GetOrders(new OrdersRequest { AccountId = _accountId }, _gRpcMetadata);
             }
-            catch (RpcException ex)
+            catch (RpcException rpcEx)
             {
-                string message = GetGRPCErrorMessage(ex);
-                SendLogMessage($"Get all orders request error. Info: {message}", LogMessageType.Error);
+                string msg = GetGRPCErrorMessage(rpcEx);
+                SendLogMessage($"Get all orders request error. Info: {msg}", LogMessageType.Error);
                 return null;
             }
             catch (Exception exception)
@@ -1655,10 +1658,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 orderCancelResponse = _myOrderTradeClient.CancelOrder(new CancelOrderRequest { AccountId = _accountId, OrderId = order.NumberMarket }, _gRpcMetadata);
             }
-            catch (RpcException ex)
+            catch (RpcException rpcEx)
             {
-                string message = GetGRPCErrorMessage(ex);
-                SendLogMessage($"Cancel order request error. Info: {message}", LogMessageType.Error);
+                string msg = GetGRPCErrorMessage(rpcEx);
+                SendLogMessage($"Cancel order request error. Info: {msg}", LogMessageType.Error);
                 return false;
             }
             catch (Exception exception)
@@ -1686,15 +1689,15 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 orderResponse = _myOrderTradeClient.GetOrder(new GetOrderRequest { AccountId = _accountId, OrderId = order.NumberMarket }, _gRpcMetadata);
             }
-            catch (RpcException ex)
+            catch (RpcException rpcEx)
             {
-                string message = GetGRPCErrorMessage(ex);
-                SendLogMessage($"Get all orders request error. Info: {message}", LogMessageType.Error);
+                string msg = GetGRPCErrorMessage(rpcEx);
+                SendLogMessage($"Get all orders request error. Info: {msg}", LogMessageType.Error);
                 return OrderStateType.None;
             }
             catch (Exception exception)
             {
-                SendLogMessage($"Get get all orders request error: {exception.Message}", LogMessageType.Error);
+                SendLogMessage($"Get all orders request error: {exception.Message}", LogMessageType.Error);
                 return OrderStateType.None;
             }
 
@@ -1808,10 +1811,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
                 return trades.Count > 0 ? trades : null;
             }
-            catch (RpcException ex)
+            catch (RpcException rpcEx)
             {
-                string message = GetGRPCErrorMessage(ex);
-                SendLogMessage($"Get trades for order request error. Info: {message}", LogMessageType.Error);
+                string msg = GetGRPCErrorMessage(rpcEx);
+                SendLogMessage($"Get trades for order request error. Info: {msg}", LogMessageType.Error);
             }
             catch (Exception exception)
             {
@@ -1857,9 +1860,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
         }
 
-        private string GetGRPCErrorMessage(RpcException ex)
+        private string GetGRPCErrorMessage(RpcException rpcEx)
         {
-            return string.Format("{0}: {1}", ex.Status.StatusCode, ex.Status.Detail);
+            return string.Format("{0}: {1}", rpcEx.Status.StatusCode, rpcEx.Status.Detail);
         }
 
         private Side GetSide(FSide side)
