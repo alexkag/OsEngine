@@ -1302,10 +1302,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
                                 // MayBe OSEngine order
                                 orders.Add(order);
                             }
-                            else
-                            {
-
-                            }
                         }
 
                         orders.Sort((x, y) => y.NumberUser.CompareTo(x.NumberUser));
@@ -1954,12 +1950,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
             if (_processedOrders.TryGetValue(order.NumberUser, out OrderStateType processedOrderState))
             {
                 if (
-                    (processedOrderState == order.State 
-                        && (processedOrderState != OrderStateType.Partial && processedOrderState != OrderStateType.Done))
+                    (processedOrderState == order.State
+                        && (processedOrderState != OrderStateType.Partial && processedOrderState != OrderStateType.Active))
                     // Final states
                     //|| processedOrderState == OrderStateType.Done
-                    || processedOrderState == OrderStateType.Cancel
-                    || processedOrderState == OrderStateType.Fail
+                    //|| processedOrderState == OrderStateType.Cancel
+                    //|| processedOrderState == OrderStateType.Fail
 
                     )
                 {
@@ -1968,11 +1964,14 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
             }
 
-            _processedOrders.AddOrUpdate(order.NumberUser, order.State, (key, oldValue) => order.State);
+            //_processedOrders.AddOrUpdate(order.NumberUser, order.State, (key, oldValue) => order.State);
 
-            if (order.State == OrderStateType.Done
+            if (
+                order.State == OrderStateType.Done
+                || order.State == OrderStateType.Active
                 || order.State == OrderStateType.Partial)
             {
+                //if (!order.TradesIsComing) { 
                 List<MyTrade> tradesForMyOrder
                     = GetMyTradesForMyOrder(order);
 
@@ -1981,6 +1980,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     for (int i = tradesForMyOrder.Count - 1; i >= 0; i--)
                     {
                         InvokeMyTradeEvent(tradesForMyOrder[i]);
+                        Thread.Sleep(1);
                         order.SetTrade(tradesForMyOrder[i]);
                     }
                 }
@@ -1988,20 +1988,21 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 {
                     // Содаем фейковый трейд
                     // Особенность АПИ (трейды могу запаздывать (не приходить?) относительно заявок)
-                    MyTrade trade = new MyTrade();
-                    trade.Volume = order.VolumeExecute;
-                    trade.Price = order.Price;
-                    trade.Side = order.Side;
-                    trade.NumberTrade = (new Random()).Next(1, 1 ^ 10).ToString();
-                    trade.NumberOrderParent = order.NumberMarket;
-                    trade.SecurityNameCode = order.SecurityNameCode;
-                    trade.Time = order.TimeCallBack;
-                    InvokeMyTradeEvent(trade);
-                    order.SetTrade(trade);
+                    //SendLogMessage($"Create fake trade for order: {order.NumberUser}", LogMessageType.Error);
+                    MyTrade fakeTrade = new MyTrade();
+                    fakeTrade.Volume = order.VolumeExecute;
+                    fakeTrade.Price = order.Price;
+                    fakeTrade.Side = order.Side;
+                    fakeTrade.NumberTrade = (new Random()).Next(1, 1 ^ 10).ToString();
+                    fakeTrade.NumberOrderParent = order.NumberMarket;
+                    fakeTrade.SecurityNameCode = order.SecurityNameCode;
+                    fakeTrade.Time = order.TimeCallBack;
+                    InvokeMyTradeEvent(fakeTrade);
+                    Thread.Sleep(1);
+                    order.SetTrade(fakeTrade);
                 }
             }
 
-            Thread.Sleep(1);
             MyOrderEvent?.Invoke(order);
             GetPortfolios();  // Обновляем портфель, в апи нет потока с обновлениями портфеля
             return true;
