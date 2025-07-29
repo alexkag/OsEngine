@@ -1,5 +1,4 @@
-﻿using Google.Protobuf.Collections;
-using Google.Protobuf.WellKnownTypes;
+﻿using Google.Protobuf.WellKnownTypes;
 using Google.Type;
 using Grpc.Core;
 using Grpc.Net.Client;
@@ -13,14 +12,12 @@ using OsEngine.Entity;
 using OsEngine.Language;
 using OsEngine.Logging;
 using OsEngine.Market.Servers.Entity;
-using OsEngine.Market.Servers.MoexFixFastSpot;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
-using System.Windows.Interop;
 using Candle = OsEngine.Entity.Candle;
 using DateTime = System.DateTime;
 using FAsset = Grpc.Tradeapi.V1.Assets.Asset;
@@ -72,9 +69,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
             worker2.Name = "ReIssueTokenThreadFinamGrpc";
             worker2.Start();
 
-            //Thread worker2 = new Thread(MarketDepthMessageReader);
-            //worker2.Name = "MarketDepthMessageReaderFinamGrpc";
-            //worker2.Start();
 
             Thread worker3 = new Thread(MyOrderTradeMessageReader);
             worker3.Name = "MyOrderTradeMessageReaderFinamGrpc";
@@ -84,6 +78,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
             worker3s.Name = "MyOrderTradeKeepAliveFinamGrpc";
             worker3s.IsBackground = true;
             worker3s.Start();
+
+            Thread worker4 = new Thread(PortfolioUpdater);
+            worker4.Name = "PortfolioUpdaterFinamGrpc";
+            worker4.Start();
 
         }
 
@@ -285,24 +283,28 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 getAccountResponse = _accountsClient.GetAccount(new GetAccountRequest { AccountId = _accountId }, headers: _gRpcMetadata);
             }
+            //catch (RpcException rpcEx) when (rpcEx.StatusCode == StatusCode.Unavailable)
+            //{
+            //    // Do nothing
+            //}
             catch (RpcException rpcEx)
             {
                 SetDisconnected();
                 string msg = GetGRPCErrorMessage(rpcEx);
-                SendLogMessage($"Error loading portfolios. Info: {msg}", LogMessageType.Error);
+                SendLogMessage($"Error getting portfolios. Info: {msg}", LogMessageType.Error);
             }
             catch (Exception ex)
             {
                 SetDisconnected();
-                SendLogMessage($"Error loading portfolios: {ex.Message}", LogMessageType.Error);
+                SendLogMessage($"Error getting portfolios: {ex.Message}", LogMessageType.Error);
             }
 
-            GetPortfolios(getAccountResponse);
+            UpdatePortfolios(getAccountResponse);
 
             PortfolioEvent?.Invoke(_myPortfolios);
         }
 
-        private void GetPortfolios(GetAccountResponse getAccountResponse)
+        private void UpdatePortfolios(GetAccountResponse getAccountResponse)
         {
             if (getAccountResponse == null) return;
             lock (_portfolioLocker)
@@ -368,8 +370,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
         #region 5 Data
         public List<Candle> GetLastCandleHistory(Security security, TimeFrameBuilder timeFrameBuilder, int candleCount)
         {
-            DateTime timeStart = DateTime.UtcNow - TimeSpan.FromMinutes(timeFrameBuilder.TimeFrameTimeSpan.TotalMinutes * candleCount);
-            DateTime timeEnd = DateTime.UtcNow;
+            DateTime timeStart = DateTime.UtcNow.AddHours(_timezoneOffset) - TimeSpan.FromMinutes(timeFrameBuilder.TimeFrameTimeSpan.TotalMinutes * candleCount);
+            DateTime timeEnd = DateTime.UtcNow.AddHours(_timezoneOffset);
 
             List<Candle> candles = GetCandleDataToSecurity(security, timeFrameBuilder, timeStart, timeEnd, timeStart);
 
@@ -698,12 +700,20 @@ namespace OsEngine.Market.Servers.FinamGrpc
             });
             httpClient.Timeout = Timeout.InfiniteTimeSpan;
 
+            //SocketsHttpHandler socketsHandler = new SocketsHttpHandler
+            //{
+            //    PooledConnectionIdleTimeout = Timeout.InfiniteTimeSpan,
+            //    KeepAlivePingDelay = TimeSpan.FromSeconds(60),
+            //    KeepAlivePingTimeout = TimeSpan.FromSeconds(30),
+            //    EnableMultipleHttp2Connections = true
+            //};
+
             _channel = GrpcChannel.ForAddress(_gRPCHost, new GrpcChannelOptions
             {
                 Credentials = ChannelCredentials.SecureSsl,
                 HttpClient = httpClient,
-                MaxRetryAttempts = null,
-
+                MaxRetryAttempts = 5,
+                //HttpHandler = socketsHandler,
             });
 
             _authClient = new AuthService.AuthServiceClient(_channel);
@@ -1249,6 +1259,23 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
         }
 
+        private void PortfolioUpdater()
+        {
+            // Собственные заявки и сделки
+            // Повторящаяся подписка, так как нет пинга и поток отваливается без реанимации
+            while (_cancellationTokenSource == null)
+            {
+                Thread.Sleep(5000);
+            }
+
+            while (!_cancellationTokenSource.IsCancellationRequested)
+            {
+                Thread.Sleep(60000);
+                if (ServerStatus == ServerConnectStatus.Disconnect) continue;
+                GetPortfolios();
+            }
+        }
+
         private void MyOrderTradeMessageReader()
         {
             Thread.Sleep(1000);
@@ -1713,9 +1740,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 List<MyTrade> tradesForMyOrder
                     = GetMyTradesForMyOrder(order);
 
-                if (tradesForMyOrder != null)
+                if (tradesForMyOrder != null && tradesForMyOrder.Count > 0)
                 {
-                    for (int i = 0; i < tradesForMyOrder.Count; i++)
+                    for (int i = tradesForMyOrder.Count - 1; i >= 0; i--)
                     {
                         InvokeMyTradeEvent(tradesForMyOrder[i]);
                     }
@@ -1950,6 +1977,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 return;
             }
 
+            MyTradeEvent?.Invoke(trade);
+            return;
+
             // Try to add the trade ID (thread-safe operation)
             // Returns true if the ID wasn't present and was added
             if (_processedMyTrades.TryAdd(trade.NumberTrade, 0))
@@ -1967,8 +1997,10 @@ namespace OsEngine.Market.Servers.FinamGrpc
             if (order == null) return false;
             GetPortfolios();  // Обновляем портфель, в апи нет потока с обновлениями портфеля
             if (string.IsNullOrEmpty(order.NumberMarket)) return false;
+            //MyOrderEvent?.Invoke(order);
+            //return true;
             // Fix Finam возвращает список всех заявок за день
-            // Выбираем только ещё нео бработанные
+            // Выбираем только ещё не обработанные
 
             if (_processedOrders.TryGetValue(order.NumberMarket, out OrderStateType processedOrderState))
             {
@@ -1994,40 +2026,45 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 List<MyTrade> tradesForMyOrder
                     = GetMyTradesForMyOrder(order);
 
-                if (tradesForMyOrder != null)
+                if (tradesForMyOrder != null && tradesForMyOrder.Count > 0)
                 {
-                    for (int i = 0; i < tradesForMyOrder.Count; i++)
+                    for (int i = tradesForMyOrder.Count - 1; i >= 0; i--)
                     {
                         InvokeMyTradeEvent(tradesForMyOrder[i]);
+                        order.SetTrade(tradesForMyOrder[i]);
                     }
                 }
                 else
                 {
                     // Содаем фейковый трейд
-                    // Особенность АПИ (трейды могу запаздывать относительно ордеров)
+                    // Особенность АПИ (трейды могу запаздывать (не приходить?) относительно ордеров)
                     MyTrade trade = new MyTrade();
-                    trade.Volume = order.Volume;
+                    trade.Volume = order.VolumeExecute;
                     trade.Price = order.Price;
-                    if (order.Volume > 0)
-                    {
-                        trade.Side = order.Side;
-                    }
-                    else
-                    {
-                        if (order.Side == Side.Buy)
-                        {
-                            trade.Side = Side.Sell;
-                        }
-                        else if (order.Side == Side.Sell)
-                        {
-                            trade.Side = Side.Buy;
-                        }
-                    }
+                    //if (order.VolumeExe > 0)
+                    //{
+                    trade.Side = order.Side;
+                    //}
+                    //else
+                    //{
+                    //    if (order.Side == Side.Buy)
+                    //    {
+                    //        trade.Side = Side.Sell;
+                    //    }
+                    //    else if (order.Side == Side.Sell)
+                    //    {
+                    //        trade.Side = Side.Buy;
+                    //    }
+                    //}
                     trade.NumberTrade = "0";
                     trade.NumberOrderParent = order.NumberMarket;
                     trade.SecurityNameCode = order.SecurityNameCode; // TODO Баг АПИ (Не содержит названия биржи) "Symbol": "VTBR@MISX" - должно быть, есть "Symbol": "VTBR"
                     trade.Time = order.TimeCallBack;
                     InvokeMyTradeEvent(trade);
+                    if (!order.TradesIsComing)
+                    {
+                        order.SetTrade(trade);
+                    }
                 }
             }
 
