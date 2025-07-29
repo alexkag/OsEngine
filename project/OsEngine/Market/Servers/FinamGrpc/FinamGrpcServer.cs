@@ -131,6 +131,18 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             disposeMyOrderTradeStream();
 
+            if (_cancellationTokenSource != null)
+            {
+                try
+                {
+                    _cancellationTokenSource.Cancel();
+                }
+                catch (Exception ex)
+                {
+                    SendLogMessage($"Error disposing stream: {ex}", LogMessageType.Error);
+                }
+            }
+
             SendLogMessage("Completed exchange with data streams (orderbook and trades)", LogMessageType.System);
 
             _channel?.Dispose();
@@ -1711,6 +1723,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
         public OrderStateType GetOrderStatus(Order order)
         {
+            if (order == null || string.IsNullOrEmpty(order.NumberMarket)) return OrderStateType.None;
+
             OrderState orderResponse = null;
             _rateGateMyOrderTradeGetOrder.WaitToProceed();
             try
@@ -1720,12 +1734,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
             catch (RpcException rpcEx)
             {
                 string msg = GetGRPCErrorMessage(rpcEx);
-                SendLogMessage($"Get all orders request error. Info: {msg}", LogMessageType.Error);
+                SendLogMessage($"Get single order request error. Info: {msg}", LogMessageType.Error);
                 return OrderStateType.None;
             }
             catch (Exception ex)
             {
-                SendLogMessage($"Get all orders request error: {ex.Message}", LogMessageType.Error);
+                SendLogMessage($"Get single order request error: {ex.Message}", LogMessageType.Error);
                 return OrderStateType.None;
             }
 
@@ -1995,14 +2009,13 @@ namespace OsEngine.Market.Servers.FinamGrpc
         private bool InvokeMyOrderEvent(Order order)
         {
             if (order == null) return false;
-            GetPortfolios();  // Обновляем портфель, в апи нет потока с обновлениями портфеля
-            if (string.IsNullOrEmpty(order.NumberMarket)) return false;
+            //if (string.IsNullOrEmpty(order.NumberMarket)) return false;
             //MyOrderEvent?.Invoke(order);
             //return true;
             // Fix Finam возвращает список всех заявок за день
             // Выбираем только ещё не обработанные
 
-            if (_processedOrders.TryGetValue(order.NumberMarket, out OrderStateType processedOrderState))
+            if (_processedOrders.TryGetValue(order.NumberUser, out OrderStateType processedOrderState))
             {
                 if ((processedOrderState == order.State
                     && processedOrderState != OrderStateType.Partial)
@@ -2018,7 +2031,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
             }
 
-            _processedOrders.AddOrUpdate(order.NumberMarket, order.State, (key, oldValue) => order.State);
+            _processedOrders.AddOrUpdate(order.NumberUser, order.State, (key, oldValue) => order.State);
 
             if (order.State == OrderStateType.Done
                 || order.State == OrderStateType.Partial)
@@ -2069,11 +2082,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
             }
 
             MyOrderEvent?.Invoke(order);
+            GetPortfolios();  // Обновляем портфель, в апи нет потока с обновлениями портфеля
             return true;
         }
 
         //private Dictionary<int, OrderStateType> _processedOrders = new Dictionary<int, OrderStateType>();
-        private readonly ConcurrentDictionary<string, OrderStateType> _processedOrders = new ConcurrentDictionary<string, OrderStateType>();
+        private readonly ConcurrentDictionary<int, OrderStateType> _processedOrders = new ConcurrentDictionary<int, OrderStateType>();
 
         private void InvokeOrderFail(Order order)
         {
