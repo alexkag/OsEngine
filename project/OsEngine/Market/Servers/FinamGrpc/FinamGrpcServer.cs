@@ -937,9 +937,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
             _rateGateMarketDataSubscribeLatestTrades.WaitToProceed();
             streamReaderInfo.Stream = _marketDataClient.SubscribeLatestTrades(new SubscribeLatestTradesRequest { Symbol = security.NameId }, _gRpcMetadata, null, cts.Token);
 
-            streamReaderInfo.ReaderThread = new Thread(() => SingleTradesMessageReader(streamReaderInfo.Stream, cts.Token, security));
-            streamReaderInfo.ReaderThread.IsBackground = true;
-            streamReaderInfo.ReaderThread.Start();
+            Thread ReaderThread = new Thread(() => SingleTradesMessageReader(streamReaderInfo.Stream, cts.Token, security));
+            ReaderThread.IsBackground = true;
+            ReaderThread.Start();
 
 
             _dicLatestTradesStreams[security.NameId] = streamReaderInfo;
@@ -960,9 +960,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
             _rateGateMarketDataSubscribeOrderBook.WaitToProceed();
             streamReaderInfo.Stream = _marketDataClient.SubscribeOrderBook(new SubscribeOrderBookRequest { Symbol = security.NameId }, _gRpcMetadata, null, cts.Token);
 
-            streamReaderInfo.ReaderThread = new Thread(() => SingleMarketDepthReader(streamReaderInfo.Stream, cts.Token, security));
-            streamReaderInfo.ReaderThread.IsBackground = true;
-            streamReaderInfo.ReaderThread.Start();
+            Thread ReaderThread = new Thread(() => SingleMarketDepthReader(streamReaderInfo.Stream, cts.Token, security));
+            ReaderThread.IsBackground = true;
+            ReaderThread.Start();
 
 
             _dicOrderBookStreams[security.NameId] = streamReaderInfo;
@@ -981,7 +981,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 // Отменяем токен только для этого ридера
                 info.CancellationTokenSource.Cancel();
-                if (info.ReaderThread != null) info.ReaderThread.Abort(); // TODO check
+                //if (info.ReaderThread != null) info.ReaderThread.Abort();
                 if (info.Stream != null) info.Stream.Dispose();
             }
         }
@@ -998,7 +998,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 // Отменяем токен только для этого ридера
                 info.CancellationTokenSource.Cancel();
-                if (info.ReaderThread != null) info.ReaderThread.Abort(); // TODO check
+                //if (info.ReaderThread != null) info.ReaderThread.Abort();
                 if (info.Stream != null) info.Stream.Dispose();
             }
         }
@@ -1953,10 +1953,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     (processedOrderState == order.State
                         && (processedOrderState != OrderStateType.Partial && processedOrderState != OrderStateType.Active))
                     // Final states
-                    //|| processedOrderState == OrderStateType.Done
-                    //|| processedOrderState == OrderStateType.Cancel
-                    //|| processedOrderState == OrderStateType.Fail
-
+                    || processedOrderState == OrderStateType.Done
+                    || processedOrderState == OrderStateType.Cancel
+                    || processedOrderState == OrderStateType.Fail
                     )
                 {
                     // Skip order processing
@@ -1964,8 +1963,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 }
             }
 
-            //_processedOrders.AddOrUpdate(order.NumberUser, order.State, (key, oldValue) => order.State);
-
+            _processedOrders.AddOrUpdate(order.NumberUser, order.State, (key, oldValue) => order.State);
+            
             if (
                 order.State == OrderStateType.Done
                 || order.State == OrderStateType.Active
@@ -1990,7 +1989,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     // Особенность АПИ (трейды могу запаздывать (не приходить?) относительно заявок)
                     //SendLogMessage($"Create fake trade for order: {order.NumberUser}", LogMessageType.Error);
                     MyTrade fakeTrade = new MyTrade();
-                    fakeTrade.Volume = order.VolumeExecute;
+                    fakeTrade.Volume = order.VolumeExecute > 0 ? order.VolumeExecute : order.Volume;
                     fakeTrade.Price = order.Price;
                     fakeTrade.Side = order.Side;
                     fakeTrade.NumberTrade = (new Random()).Next(1, 1 ^ 10).ToString();
@@ -2070,7 +2069,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
         {
             public AsyncServerStreamingCall<SubscribeLatestTradesResponse> Stream { get; set; }
             public CancellationTokenSource CancellationTokenSource { get; set; }
-            public Thread ReaderThread { get; set; }
+            //public Thread ReaderThread { get; set; }
         }
 
         private class OrderBookStreamReaderInfo
