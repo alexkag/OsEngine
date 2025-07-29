@@ -657,7 +657,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             catch (RpcException rpcEx)
             {
                 string msg = GetGRPCErrorMessage(rpcEx);
-                SendLogMessage($"Error while getting latest trades data: {msg}", LogMessageType.Error);
+                SendLogMessage($"Error while getting latest trades data. Info: {msg}", LogMessageType.Error);
             }
             catch (Exception ex)
             {
@@ -1282,7 +1282,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             while (!_cancellationTokenSource.IsCancellationRequested)
             {
-                Thread.Sleep(60000);
+                Thread.Sleep(10000);
                 if (ServerStatus == ServerConnectStatus.Disconnect) continue;
                 GetPortfolios();
             }
@@ -1492,7 +1492,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                         Thread.Sleep(3000);
                         continue;
                     }
-                    ServerTime = resp.Timestamp.ToDateTime();
+                    ServerTime = resp.Timestamp.ToDateTime().AddHours(_timezoneOffset);
                     Thread.Sleep(3000); // Sleep2
                 }
                 catch (RpcException rpcEx) when (rpcEx.StatusCode == StatusCode.Cancelled)
@@ -1611,7 +1611,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
             FOrder newOrder = orderState.Order;
             order.State = GetOrderStateType(orderState.Status);
             order.NumberMarket = orderState.OrderId;
-            order.TimeCallBack = orderState.TransactAt.ToDateTime();
+            order.TimeCallBack = orderState.TransactAt.ToDateTime().AddHours(_timezoneOffset);
             if (newOrder.LimitPrice != null)
             {
                 order.Price = newOrder.LimitPrice.Value.ToDecimal();
@@ -1620,12 +1620,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
 
             if (order.State == OrderStateType.Cancel)
             {
-                order.TimeCancel = orderState.WithdrawAt.ToDateTime(); // TODO Описание в документации не соответствует названию параметра. Уточнить.
+                order.TimeCancel = orderState.WithdrawAt.ToDateTime().AddHours(_timezoneOffset);
             }
 
             if (order.State == OrderStateType.Done)
             {
-                order.TimeDone = orderState.AcceptAt.ToDateTime();
+                order.TimeDone = orderState.AcceptAt.ToDateTime().AddHours(_timezoneOffset);
             }
             //MyOrderEvent?.Invoke(order);
             InvokeMyOrderEvent(order);
@@ -1991,8 +1991,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 return;
             }
 
-            MyTradeEvent?.Invoke(trade);
-            return;
+            //MyTradeEvent?.Invoke(trade);
+            //return;
 
             // Try to add the trade ID (thread-safe operation)
             // Returns true if the ID wasn't present and was added
@@ -2002,7 +2002,7 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 MyTradeEvent?.Invoke(trade);
             }
 
-            // Note: Uncomment if you need portfolio updates
+            // Note: Uncomment if portfolio updates needed
             // Task.Run(GetPortfolios);
         }
 
@@ -2047,37 +2047,20 @@ namespace OsEngine.Market.Servers.FinamGrpc
                         order.SetTrade(tradesForMyOrder[i]);
                     }
                 }
-                else
+                if (!order.TradesIsComing)
                 {
                     // Содаем фейковый трейд
-                    // Особенность АПИ (трейды могу запаздывать (не приходить?) относительно ордеров)
+                    // Особенность АПИ (трейды могу запаздывать (не приходить?) относительно заявок)
                     MyTrade trade = new MyTrade();
                     trade.Volume = order.VolumeExecute;
                     trade.Price = order.Price;
-                    //if (order.VolumeExe > 0)
-                    //{
                     trade.Side = order.Side;
-                    //}
-                    //else
-                    //{
-                    //    if (order.Side == Side.Buy)
-                    //    {
-                    //        trade.Side = Side.Sell;
-                    //    }
-                    //    else if (order.Side == Side.Sell)
-                    //    {
-                    //        trade.Side = Side.Buy;
-                    //    }
-                    //}
-                    trade.NumberTrade = "0";
+                    trade.NumberTrade = (new Random()).Next(1,1^10).ToString();
                     trade.NumberOrderParent = order.NumberMarket;
-                    trade.SecurityNameCode = order.SecurityNameCode; // TODO Баг АПИ (Не содержит названия биржи) "Symbol": "VTBR@MISX" - должно быть, есть "Symbol": "VTBR"
+                    trade.SecurityNameCode = order.SecurityNameCode;
                     trade.Time = order.TimeCallBack;
                     InvokeMyTradeEvent(trade);
-                    if (!order.TradesIsComing)
-                    {
-                        order.SetTrade(trade);
-                    }
+                    order.SetTrade(trade);
                 }
             }
 
