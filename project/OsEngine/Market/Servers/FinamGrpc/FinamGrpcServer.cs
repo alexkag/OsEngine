@@ -92,7 +92,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 _myPortfolios.Clear();
                 _subscribedSecurities.Clear();
                 _processedOrders.Clear();
-                _processedMyTrades.Clear();
 
                 SendLogMessage("Start Finam gRPC Connection", LogMessageType.System);
 
@@ -154,7 +153,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
             _dicLatestTradesStreams.Clear();
             _dicLastMdTime.Clear();
             _processedOrders.Clear();
-            _processedMyTrades.Clear();
 
             SendLogMessage("Connection to Finam gRPC closed. Data streams Closed Event", LogMessageType.System);
 
@@ -1304,7 +1302,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
                             }
                         }
 
-                        orders.Sort((x, y) => y.NumberUser.CompareTo(x.NumberUser));
+                        //orders.Sort((x, y) => y.NumberUser.CompareTo(x.NumberUser));
+                        orders.Sort((x, y) => y.TimeCallBack.CompareTo(x.TimeCallBack));
 
                         for (int j = 0; j < orders.Count; j++)
                         {
@@ -1918,8 +1917,6 @@ namespace OsEngine.Market.Servers.FinamGrpc
             return null;
         }
 
-        private readonly ConcurrentDictionary<string, byte> _processedMyTrades = new ConcurrentDictionary<string, byte>();
-
         private void InvokeMyTradeEvent(MyTrade trade)
         {
             if (trade == null || string.IsNullOrEmpty(trade.NumberOrderParent))
@@ -1927,14 +1924,8 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 return;
             }
 
-            //MyTradeEvent?.Invoke(trade);
-            //return;
-
-            if (_processedMyTrades.TryAdd(trade.NumberTrade, 0))
-            {
-                // Only invoke the event if this is a new trade
-                MyTradeEvent?.Invoke(trade);
-            }
+            MyTradeEvent?.Invoke(trade);
+            return;
         }
 
         private bool InvokeMyOrderEvent(Order order)
@@ -1951,9 +1942,9 @@ namespace OsEngine.Market.Servers.FinamGrpc
             {
                 if (
                     (processedOrderState == order.State
-                        && (processedOrderState != OrderStateType.Partial && processedOrderState != OrderStateType.Active))
+                        && (processedOrderState != OrderStateType.Partial && processedOrderState != OrderStateType.Active && processedOrderState != OrderStateType.Done))
                     // Final states
-                    || processedOrderState == OrderStateType.Done
+                    //|| processedOrderState == OrderStateType.Done
                     || processedOrderState == OrderStateType.Cancel
                     || processedOrderState == OrderStateType.Fail
                     )
@@ -1962,13 +1953,12 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     return false;
                 }
             }
-
-            _processedOrders.AddOrUpdate(order.NumberUser, order.State, (key, oldValue) => order.State);
             
             if (
-                order.State == OrderStateType.Done
-                || order.State == OrderStateType.Active
+                (order.State == OrderStateType.Done
                 || order.State == OrderStateType.Partial)
+                //&& processedOrderState.TradesIsComing == false
+                )
             {
                 //if (!order.TradesIsComing) { 
                 List<MyTrade> tradesForMyOrder
@@ -1978,16 +1968,17 @@ namespace OsEngine.Market.Servers.FinamGrpc
                 {
                     for (int i = tradesForMyOrder.Count - 1; i >= 0; i--)
                     {
-                        InvokeMyTradeEvent(tradesForMyOrder[i]);
-                        Thread.Sleep(1);
                         order.SetTrade(tradesForMyOrder[i]);
+                        InvokeMyTradeEvent(tradesForMyOrder[i]);
                     }
+                    Thread.Sleep(5);
                 }
-                if (!order.TradesIsComing)
+
+                /*if (!order.TradesIsComing)
                 {
                     // Содаем фейковый трейд
                     // Особенность АПИ (трейды могу запаздывать (не приходить?) относительно заявок)
-                    //SendLogMessage($"Create fake trade for order: {order.NumberUser}", LogMessageType.Error);
+                    SendLogMessage($"Create fake trade for order: {order.NumberUser}, state: {order.State}, trades count: {tradesForMyOrder.Count}.", LogMessageType.Error);
                     MyTrade fakeTrade = new MyTrade();
                     fakeTrade.Volume = order.VolumeExecute > 0 ? order.VolumeExecute : order.Volume;
                     fakeTrade.Price = order.Price;
@@ -1997,13 +1988,16 @@ namespace OsEngine.Market.Servers.FinamGrpc
                     fakeTrade.SecurityNameCode = order.SecurityNameCode;
                     fakeTrade.Time = order.TimeCallBack;
                     InvokeMyTradeEvent(fakeTrade);
-                    Thread.Sleep(1);
+                    Thread.Sleep(50);
                     order.SetTrade(fakeTrade);
-                }
+                }*/
             }
 
+            //processedOrderState.TradesIsComing = order.TradesIsComing;
+            _processedOrders.AddOrUpdate(order.NumberUser, processedOrderState, (key, oldValue) => processedOrderState);
+
             MyOrderEvent?.Invoke(order);
-            GetPortfolios();  // Обновляем портфель, в апи нет потока с обновлениями портфеля
+            //GetPortfolios();  // Обновляем портфель, в апи нет потока с обновлениями портфеля. Медленно
             return true;
         }
 
