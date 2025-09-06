@@ -1,9 +1,11 @@
-﻿using OsEngine.Entity;
+﻿using MtApi5;
+using OsEngine.Entity;
 using OsEngine.Logging;
 using OsEngine.Market.Servers.Entity;
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Threading;
 
 namespace OsEngine.Market.Servers.MetaTrader
 {
@@ -26,16 +28,95 @@ namespace OsEngine.Market.Servers.MetaTrader
 
         public MetaTraderServerRealization()
         {
+
         }
 
-        void IServerRealization.Connect(WebProxy proxy)
+        static readonly EventWaitHandle _connnectionWaiter = new AutoResetEvent(false);
+        static readonly MtApi5Client _mtapi = new MtApi5Client();
+        public void Connect(WebProxy proxy)
         {
-            throw new NotImplementedException();
+            SendLogMessage("Start MetaTrader Windows terminal connection", LogMessageType.System);
+
+            _mtapi.ConnectionStateChanged += _mtapi_ConnectionStateChanged;
+            _mtapi.QuoteAdded += _mtapi_QuoteAdded;
+            _mtapi.QuoteRemoved += _mtapi_QuoteRemoved;
+            _mtapi.QuoteUpdate += _mtapi_QuoteUpdate;
+
+
+            _mtapi.BeginConnect(8228);
+            _connnectionWaiter.WaitOne();
+
+            if (_mtapi.ConnectionState != Mt5ConnectionState.Connected)
+            {
+                SendLogMessage("Not connected. Check setup.", LogMessageType.System);
+                SetDisconnected();
+                return;
+            }
+
+            SendLogMessage("Client connected.", LogMessageType.System);
+            SetСonnected();
         }
 
-        void IServerRealization.Dispose()
+        void _mtapi_ConnectionStateChanged(object sender, Mt5ConnectionEventArgs e)
         {
-            throw new NotImplementedException();
+            switch (e.Status)
+            {
+                case Mt5ConnectionState.Connecting:
+                    SendLogMessage("Connecting...", LogMessageType.System);
+                    break;
+                case Mt5ConnectionState.Connected:
+                    SendLogMessage("Connected.", LogMessageType.System);
+                    _connnectionWaiter.Set();
+                    break;
+                case Mt5ConnectionState.Disconnected:
+                    SendLogMessage("Disconnected.", LogMessageType.System);
+                    _connnectionWaiter.Set();
+                    break;
+                case Mt5ConnectionState.Failed:
+                    SendLogMessage("Connection failed.", LogMessageType.System);
+                    _connnectionWaiter.Set();
+                    break;
+            }
+        }
+
+        void _mtapi_QuoteAdded(object sender, Mt5QuoteEventArgs e)
+        {
+            //Console.WriteLine("Quote added with symbol {0}", e.Quote.Instrument);
+            SendLogMessage("Quote added with symbol " + e.Quote.Instrument, LogMessageType.System);
+        }
+
+        void _mtapi_QuoteRemoved(object sender, Mt5QuoteEventArgs e)
+        {
+            //Console.WriteLine("Quote removed with symbol {0}", e.Quote.Instrument);
+            SendLogMessage("Quote removed with symbol " + e.Quote.Instrument, LogMessageType.System);
+        }
+
+        void _mtapi_QuoteUpdate(object sender, Mt5QuoteEventArgs e)
+        {
+            Console.WriteLine("Quote updated: {0} - {1} : {2}", e.Quote.Instrument, e.Quote.Bid, e.Quote.Ask);
+            string msg = string.Format("Quote updated: {0} - {1} : {2}", e.Quote.Instrument, e.Quote.Bid, e.Quote.Ask);
+            SendLogMessage(msg, LogMessageType.System);
+        }
+
+
+        public void Dispose()
+        {
+            _mtapi.BeginDisconnect();
+
+            _mtapi.ConnectionStateChanged -= _mtapi_ConnectionStateChanged;
+            _mtapi.QuoteAdded -= _mtapi_QuoteAdded;
+            _mtapi.QuoteRemoved -= _mtapi_QuoteRemoved;
+            _mtapi.QuoteUpdate -= _mtapi_QuoteUpdate;
+
+            if (_mtapi.ConnectionState != Mt5ConnectionState.Disconnected)
+            {
+                SendLogMessage("Disconnect failed.", LogMessageType.System);
+                return;
+            }
+
+            SendLogMessage("Connection to MetaTrader Windows terminal closed.", LogMessageType.System);
+
+            SetDisconnected();
         }
 
         public event Action ConnectEvent;
@@ -59,7 +140,55 @@ namespace OsEngine.Market.Servers.MetaTrader
         #region 3 Securities
         void IServerRealization.GetSecurities()
         {
-            throw new NotImplementedException();
+            IEnumerable<Mt5Quote> secs = _mtapi.GetQuotes();
+            int secsCount = _mtapi.SymbolsTotal(false);
+            for (int i = 0; i < secsCount; i++)
+            {
+                Security security = new Security();
+                security.Name = _mtapi.SymbolName(i, false);
+                //security.Name = "VTBR";
+                security.Lot = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_CONTRACT_SIZE));
+                security.PriceStep = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
+                security.PriceStepCost = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
+                security.PriceLimitLow = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_SESSION_PRICE_LIMIT_MIN));
+                security.PriceLimitHigh = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_SESSION_PRICE_LIMIT_MAX));
+                security.VolumeStep = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_VOLUME_STEP));
+                security.MinTradeAmountType = MinTradeAmountType.C_Currency; //TODO проверить
+                //var res1 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_PATH);
+                //var res1 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_CATEGORY);
+                //var res2 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_BASIS);
+                security.NameClass = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_ISIN);
+                security.NameFull = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_DESCRIPTION);
+                security.NameId = security.Name + "@" + security.NameClass;
+                security.Decimals = Convert.ToInt16(_mtapi.SymbolInfoInteger(security.Name, ENUM_SYMBOL_INFO_INTEGER.SYMBOL_DIGITS));
+                //var values = Enum.GetValues(typeof(ENUM_SYMBOL_INFO_DOUBLE));
+                //SendLogMessage("Double params", LogMessageType.System);
+                //foreach (ENUM_SYMBOL_INFO_DOUBLE param in values)
+                //{
+                //    decimal res = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, param));
+                //    string msg = string.Format("Param {0}, value {1}", param, res);
+                //    SendLogMessage(msg, LogMessageType.System);
+                //}
+                _securities.Add(security);
+            }
+
+            if (secs == null) return;
+
+            //IEnumerator iSecs = secs.GetEnumerator();
+            //while (iSecs.MoveNext())
+            //{
+            //    Mt5Quote sec = (Mt5Quote)iSecs.Current;
+            //    security.Name = sec.Instrument;
+            //    security.NameId = sec.Instrument;
+            //    security.NameFull = sec.Instrument;
+            //    security.NameClass = ServerType.MetaTrader.ToString();
+            //    security.State = SecurityStateType.Activ;
+            //    security.Exchange = ServerType.MetaTrader.ToString();
+            //    _securities.Add(security);
+            //}
+
+            SecurityEvent?.Invoke(_securities);
+
         }
 
         public event Action<List<Security>> SecurityEvent;
@@ -88,12 +217,12 @@ namespace OsEngine.Market.Servers.MetaTrader
             return candles;
         }
 
-        List<Candle> IServerRealization.GetCandleDataToSecurity(Security security, TimeFrameBuilder timeFrameBuilder, DateTime startTime, DateTime endTime, DateTime actualTime)
+        public List<Candle> GetCandleDataToSecurity(Security security, TimeFrameBuilder timeFrameBuilder, DateTime startTime, DateTime endTime, DateTime actualTime)
         {
             throw new NotImplementedException();
         }
 
-        List<Trade> IServerRealization.GetTickDataToSecurity(Security security, DateTime startTime, DateTime endTime, DateTime actualTime)
+        public List<Trade> GetTickDataToSecurity(Security security, DateTime startTime, DateTime endTime, DateTime actualTime)
         {
             throw new NotImplementedException();
         }

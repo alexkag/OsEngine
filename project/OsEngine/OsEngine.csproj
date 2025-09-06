@@ -82,6 +82,12 @@
     <Reference Include="LmaxClientLibrary">
       <HintPath>bin\Debug\LmaxClientLibrary.dll</HintPath>
     </Reference>
+    <Reference Include="MT5Connector">
+      <HintPath>..\..\related projects\mtapi\build\products\Release\x64\MT5Connector.dll</HintPath>
+    </Reference>
+    <Reference Include="MtApi5">
+      <HintPath>..\..\related projects\mtapi\build\products\Release\net8.0\MtApi5.dll</HintPath>
+    </Reference>
     <Reference Include="OpenFAST">
       <HintPath>bin\Debug\OpenFAST.dll</HintPath>
     </Reference>
