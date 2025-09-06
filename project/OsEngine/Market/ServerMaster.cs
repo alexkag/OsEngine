@@ -76,6 +76,7 @@ using OsEngine.Market.Servers.TelegramNews;
 using OsEngine.Market.Servers.Bitfinex.BitfinexFutures;
 using OsEngine.Market.Servers.FinamGrpc;
 using OsEngine.Market.Servers.BinanceData;
+using OsEngine.Market.Servers.MetaTrader;
 using OsEngine.Market.AutoFollow;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader;
@@ -328,7 +329,8 @@ namespace OsEngine.Market
                 serverTypes.Add(ServerType.BloFinFutures);
                 serverTypes.Add(ServerType.TelegramNews);
                 serverTypes.Add(ServerType.BinanceData);
-                serverTypes.Add(ServerType. AscendexSpot);
+                serverTypes.Add(ServerType.AscendexSpot);
+                serverTypes.Add(ServerType.MetaTrader);
 
                 // а теперь сортируем в зависимости от предпочтений пользователя
 
@@ -434,6 +436,7 @@ namespace OsEngine.Market
                 serverTypes.Add(ServerType.BinanceData);
                 serverTypes.Add(ServerType.AscendexSpot);
                 serverTypes.Add(ServerType.OKXData);
+                serverTypes.Add(ServerType.MetaTrader);
 
                 return serverTypes;
             }
@@ -807,6 +810,10 @@ namespace OsEngine.Market
                 else if (type == ServerType.AscendexSpot)
                 {
                     newServer = new AscendexSpotServer(uniqueNum);
+                }
+                else if (type == ServerType.MetaTrader)
+                {
+                    newServer = new MetaTraderServer(uniqueNum);
                 }
 
                 if (newServer == null)
@@ -1560,6 +1567,10 @@ namespace OsEngine.Market
                 else if (type == ServerType.OKXData)
                 {
                     serverPermission = new OKXDataServerPermission();
+                }
+                else if (type == ServerType.MetaTrader)
+                {
+                    serverPermission = new MetaTraderServerPermission();
                 }
 
                 if (serverPermission != null)
@@ -2347,6 +2358,12 @@ namespace OsEngine.Market
         /// downloading historical data from exchange OKX
         /// скачивание исторических данных с биржи OKX
         /// </summary>
-        OKXData
+        OKXData,
+
+        /// <summary>
+        /// MetaTrader Adapter
+        /// Адаптер к Метатрейдер
+        /// </summary>
+        MetaTrader
     }
 }
