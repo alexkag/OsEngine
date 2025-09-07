@@ -18,6 +18,9 @@ namespace OsEngine.Market.Servers.MetaTrader
             MetaTraderServerRealization realization = new MetaTraderServerRealization();
             ServerRealization = realization;
 
+            CreateParameterString("Host", "localhost");
+            CreateParameterInt("Port", 8228);
+            CreateParameterString("Securities filter", "moex");
         }
     }
 
@@ -37,13 +40,16 @@ namespace OsEngine.Market.Servers.MetaTrader
         {
             SendLogMessage("Start MetaTrader Windows terminal connection", LogMessageType.System);
 
+
             _mtapi.ConnectionStateChanged += _mtapi_ConnectionStateChanged;
             _mtapi.QuoteAdded += _mtapi_QuoteAdded;
             _mtapi.QuoteRemoved += _mtapi_QuoteRemoved;
             _mtapi.QuoteUpdate += _mtapi_QuoteUpdate;
 
 
-            _mtapi.BeginConnect(8228);
+            _metatraderHost = ((ServerParameterString)ServerParameters[0]).Value;
+            _metatraderPort = ((ServerParameterInt)ServerParameters[1]).Value;
+            _mtapi.BeginConnect(_metatraderHost, _metatraderPort);
             _connnectionWaiter.WaitOne();
 
             if (_mtapi.ConnectionState != Mt5ConnectionState.Connected)
@@ -134,45 +140,74 @@ namespace OsEngine.Market.Servers.MetaTrader
         #region 2 Properties
 
         public ServerType ServerType => ServerType.MetaTrader;
+        private string _metatraderHost;
+        private int _metatraderPort;
+        private string _securitiesFilter;
 
         #endregion
 
         #region 3 Securities
         void IServerRealization.GetSecurities()
         {
-            IEnumerable<Mt5Quote> secs = _mtapi.GetQuotes();
-            int secsCount = _mtapi.SymbolsTotal(false);
-            for (int i = 0; i < secsCount; i++)
+            _securitiesFilter = ((ServerParameterString)ServerParameters[2]).Value;
+            _securities = new List<Security>();
+
+            try
             {
-                Security security = new Security();
-                security.Name = _mtapi.SymbolName(i, false);
-                //security.Name = "VTBR";
-                security.Lot = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_CONTRACT_SIZE));
-                security.PriceStep = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
-                security.PriceStepCost = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
-                security.PriceLimitLow = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_SESSION_PRICE_LIMIT_MIN));
-                security.PriceLimitHigh = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_SESSION_PRICE_LIMIT_MAX));
-                security.VolumeStep = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_VOLUME_STEP));
-                security.MinTradeAmountType = MinTradeAmountType.C_Currency; //TODO проверить
-                //var res1 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_PATH);
-                //var res1 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_CATEGORY);
-                //var res2 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_BASIS);
-                security.NameClass = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_ISIN);
-                security.NameFull = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_DESCRIPTION);
-                security.NameId = security.Name + "@" + security.NameClass;
-                security.Decimals = Convert.ToInt16(_mtapi.SymbolInfoInteger(security.Name, ENUM_SYMBOL_INFO_INTEGER.SYMBOL_DIGITS));
-                //var values = Enum.GetValues(typeof(ENUM_SYMBOL_INFO_DOUBLE));
-                //SendLogMessage("Double params", LogMessageType.System);
-                //foreach (ENUM_SYMBOL_INFO_DOUBLE param in values)
-                //{
-                //    decimal res = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, param));
-                //    string msg = string.Format("Param {0}, value {1}", param, res);
-                //    SendLogMessage(msg, LogMessageType.System);
-                //}
-                _securities.Add(security);
+                IEnumerable<Mt5Quote> secs = _mtapi.GetQuotes();
+                int secsCount = _mtapi.SymbolsTotal(false);
+                for (int i = 0; i < secsCount; i++)
+                {
+                    Security security = new Security();
+                    security.Name = _mtapi.SymbolName(i, false);
+                    security.NameClass = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_ISIN);
+
+                    // Используем фильтр бумаг, если задан
+                    // 15 тыс. тикеров Финам - неудобно
+                    if (
+                        !string.IsNullOrEmpty(_securitiesFilter) &&
+                        !(security.Name.Contains(_securitiesFilter, StringComparison.OrdinalIgnoreCase) || security.NameClass.Contains(_securitiesFilter, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        continue;
+                    }
+                    //security.Name = "VTBR";
+                    security.Lot = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_CONTRACT_SIZE));
+                    security.PriceStep = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
+                    security.PriceStepCost = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
+                    security.PriceLimitLow = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_SESSION_PRICE_LIMIT_MIN));
+                    security.PriceLimitHigh = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_SESSION_PRICE_LIMIT_MAX));
+                    security.VolumeStep = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_VOLUME_STEP));
+                    security.MinTradeAmountType = MinTradeAmountType.C_Currency; //TODO проверить
+                                                                                 //var res1 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_PATH);
+                                                                                 //var res1 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_CATEGORY);
+                                                                                 //var res2 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_BASIS);
+                    try
+                    {
+                        security.NameFull = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_DESCRIPTION) ?? security.Name + "@" + security.NameClass;
+                    }
+                    catch (Exception ex) {
+                        SendLogMessage($"Get Security data error. Security {security.Name}. Index {i}.", LogMessageType.Error);
+                        security.NameFull = "Other";
+                    }
+                    security.NameId = security.Name + "@" + security.NameClass;
+                    security.Decimals = Convert.ToInt16(_mtapi.SymbolInfoInteger(security.Name, ENUM_SYMBOL_INFO_INTEGER.SYMBOL_DIGITS));
+                    //var values = Enum.GetValues(typeof(ENUM_SYMBOL_INFO_DOUBLE));
+                    //SendLogMessage("Double params", LogMessageType.System);
+                    //foreach (ENUM_SYMBOL_INFO_DOUBLE param in values)
+                    //{
+                    //    decimal res = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, param));
+                    //    string msg = string.Format("Param {0}, value {1}", param, res);
+                    //    SendLogMessage(msg, LogMessageType.System);
+                    //}
+                    _securities.Add(security);
+                }
+            }
+            catch (Exception e)
+            {
+                SendLogMessage("Get Securities error. " + e.Message, LogMessageType.Error);
             }
 
-            if (secs == null) return;
+            if (_securities == null) return;
 
             //IEnumerator iSecs = secs.GetEnumerator();
             //while (iSecs.MoveNext())

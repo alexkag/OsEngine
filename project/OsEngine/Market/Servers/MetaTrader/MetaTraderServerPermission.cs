@@ -120,7 +120,7 @@ namespace OsEngine.Market.Servers.MetaTrader
 
         public int WaitTimeSecondsAfterFirstStartToSendOrders
         {
-            get { return 60; }
+            get { return 10; }
         }
 
         public bool IsCanChangeOrderPrice
