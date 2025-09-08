@@ -4,8 +4,10 @@ using OsEngine.Logging;
 using OsEngine.Market.Servers.Entity;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Threading;
+using TL;
 
 namespace OsEngine.Market.Servers.MetaTrader
 {
@@ -45,6 +47,10 @@ namespace OsEngine.Market.Servers.MetaTrader
             _mtapi.QuoteAdded += _mtapi_QuoteAdded;
             _mtapi.QuoteRemoved += _mtapi_QuoteRemoved;
             _mtapi.QuoteUpdate += _mtapi_QuoteUpdate;
+            _mtapi.OnLockTicks += NewTradeEventHandler;
+            //_mtapi.OnLastTimeBar += NewCandleEventHandler;
+            //_mtapi.OnTradeTransaction += MyTradeEventHandler;
+            _mtapi.QuoteList += MarketDepthEventHandler;
 
 
             _metatraderHost = ((ServerParameterString)ServerParameters[0]).Value;
@@ -63,6 +69,66 @@ namespace OsEngine.Market.Servers.MetaTrader
             SetСonnected();
         }
 
+        private void NewTradeEventHandler(object sender, Mt5LockTicksEventArgs e)
+        {
+            List<MqlTick> ticks = _mtapi.CopyTicks(e.Symbol, CopyTicksFlag.Trade, 0, 1);
+            if (ticks == null || ticks.Count == 0)
+            {
+                return;
+            }
+
+            MqlTick tick = ticks[ticks.Count - 1];
+
+            Trade trade = new Trade();
+            trade.Volume = tick.volume;
+            trade.Side = Side.None;
+            if (tick.bid > 0)
+            {
+                trade.Side = Side.Sell;
+                trade.Price = Convert.ToDecimal(tick.bid);
+            }
+            else if (tick.ask > 0)
+            {
+                trade.Side = Side.Buy;
+                trade.Price = Convert.ToDecimal(tick.ask);
+            }
+            //e.Symbol
+            NewTradesEvent?.Invoke(trade);
+        }
+
+        private void MarketDepthEventHandler(object sender, Mt5QuotesEventArgs e)
+        {
+            MarketDepth depth = new MarketDepth();
+            //depth.SecurityNameCode = e.;
+            //depth.Time = ConvertToDateTimeFromUnixFromMilliseconds(baseMessage.data.ms_timestamp);
+            for (int i = 0; i < e.Quotes.Count(); i++)
+            {
+                Mt5Quote mtLevel = e.Quotes.ElementAt(i);
+                if (string.IsNullOrEmpty(depth.SecurityNameCode))
+                {
+                    depth.SecurityNameCode = mtLevel.Instrument;
+                    depth.Time = mtLevel.Time;
+                }
+                MarketDepthLevel level = new MarketDepthLevel();
+                if (mtLevel.Bid > 0)
+                {
+                    level.Price = Convert.ToDecimal(mtLevel.Bid);
+                    level.Bid = mtLevel.Volume;
+                }
+                else if (mtLevel.Ask > 0)
+                {
+                    level.Price = Convert.ToDecimal(mtLevel.Ask);
+                    level.Ask = mtLevel.Volume;
+                }
+            }
+
+
+            if ((depth.Bids != null && depth.Bids.Count > 0) || (depth.Asks != null && depth.Asks.Count > 0))
+            {
+                MarketDepthEvent?.Invoke(depth);
+            }
+        }
+
         void _mtapi_ConnectionStateChanged(object sender, Mt5ConnectionEventArgs e)
         {
             switch (e.Status)
@@ -77,6 +143,7 @@ namespace OsEngine.Market.Servers.MetaTrader
                 case Mt5ConnectionState.Disconnected:
                     SendLogMessage("Disconnected.", LogMessageType.System);
                     _connnectionWaiter.Set();
+                    SetDisconnected();
                     break;
                 case Mt5ConnectionState.Failed:
                     SendLogMessage("Connection failed.", LogMessageType.System);
@@ -113,6 +180,7 @@ namespace OsEngine.Market.Servers.MetaTrader
             _mtapi.QuoteAdded -= _mtapi_QuoteAdded;
             _mtapi.QuoteRemoved -= _mtapi_QuoteRemoved;
             _mtapi.QuoteUpdate -= _mtapi_QuoteUpdate;
+            _mtapi.OnLockTicks -= NewTradeEventHandler;
 
             if (_mtapi.ConnectionState != Mt5ConnectionState.Disconnected)
             {
@@ -159,38 +227,68 @@ namespace OsEngine.Market.Servers.MetaTrader
                 for (int i = 0; i < secsCount; i++)
                 {
                     Security security = new Security();
-                    security.Name = _mtapi.SymbolName(i, false);
-                    security.NameClass = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_ISIN);
+                    security.NameId = _mtapi.SymbolName(i, false);
+                    security.Name = security.NameId;
+                    security.NameClass = _mtapi.SymbolInfoString(security.NameId, ENUM_SYMBOL_INFO_STRING.SYMBOL_ISIN);
+                    if (string.IsNullOrEmpty(security.NameClass))
+                    {
+                        security.NameClass = "Other";
+                    }
 
                     // Используем фильтр бумаг, если задан
                     // 15 тыс. тикеров Финам - неудобно
                     if (
                         !string.IsNullOrEmpty(_securitiesFilter) &&
-                        !(security.Name.Contains(_securitiesFilter, StringComparison.OrdinalIgnoreCase) || security.NameClass.Contains(_securitiesFilter, StringComparison.OrdinalIgnoreCase)))
+                        !(security.NameId.Contains(_securitiesFilter, StringComparison.OrdinalIgnoreCase) || security.NameClass.Contains(_securitiesFilter, StringComparison.OrdinalIgnoreCase)))
                     {
                         continue;
                     }
                     //security.Name = "VTBR";
-                    security.Lot = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_CONTRACT_SIZE));
-                    security.PriceStep = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
-                    security.PriceStepCost = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
-                    security.PriceLimitLow = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_SESSION_PRICE_LIMIT_MIN));
-                    security.PriceLimitHigh = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_SESSION_PRICE_LIMIT_MAX));
-                    security.VolumeStep = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.Name, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_VOLUME_STEP));
-                    security.MinTradeAmountType = MinTradeAmountType.C_Currency; //TODO проверить
-                                                                                 //var res1 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_PATH);
-                                                                                 //var res1 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_CATEGORY);
-                                                                                 //var res2 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_BASIS);
+                    security.Lot = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_CONTRACT_SIZE));
+                    security.PriceStep = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
+                    security.PriceStepCost = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
+                    security.PriceLimitLow = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_SESSION_PRICE_LIMIT_MIN));
+                    security.PriceLimitHigh = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_SESSION_PRICE_LIMIT_MAX));
+                    security.VolumeStep = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_VOLUME_STEP));
+                    //var res1 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_PATH);
+                    //var res1 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_CATEGORY);
+                    //var res2 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_BASIS);
                     try
                     {
-                        security.NameFull = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_DESCRIPTION) ?? security.Name + "@" + security.NameClass;
+                        security.Name = _mtapi.SymbolInfoString(security.NameId, ENUM_SYMBOL_INFO_STRING.SYMBOL_DESCRIPTION) ?? security.Name + "@" + security.NameClass;
                     }
-                    catch (Exception ex) {
-                        SendLogMessage($"Get Security data error. Security {security.Name}. Index {i}.", LogMessageType.Error);
-                        security.NameFull = "Other";
+                    catch (Exception ex)
+                    {
+                        SendLogMessage($"Get Security data error. Security {security.NameId}. Index {i}.", LogMessageType.Error);
+                        security.Name = "Other";
                     }
-                    security.NameId = security.Name + "@" + security.NameClass;
+                    security.NameFull = security.NameId + "@" + security.NameClass;
                     security.Decimals = Convert.ToInt16(_mtapi.SymbolInfoInteger(security.Name, ENUM_SYMBOL_INFO_INTEGER.SYMBOL_DIGITS));
+
+                    // Платформо зависимо
+                    if (security.NameClass.ToLower().Contains("stock"))
+                    {
+                        security.SecurityType = SecurityType.Stock;
+                        security.MinTradeAmountType = MinTradeAmountType.Contract;
+                    }
+                    else if (security.NameClass.ToLower().Contains("fut"))
+                    {
+                        security.SecurityType = SecurityType.Futures;
+                        security.MinTradeAmountType = MinTradeAmountType.Contract;
+                    }
+                    else if (security.NameClass.ToLower().Contains("cur"))
+                    {
+                        security.SecurityType = SecurityType.CurrencyPair;
+                        security.MinTradeAmountType = MinTradeAmountType.C_Currency;
+                    }
+                    else
+                    {
+                        //security.SecurityType = SecurityType.Index;
+                        security.SecurityType = SecurityType.Stock;
+                        security.MinTradeAmountType = MinTradeAmountType.Contract;
+                    }
+
+
                     //var values = Enum.GetValues(typeof(ENUM_SYMBOL_INFO_DOUBLE));
                     //SendLogMessage("Double params", LogMessageType.System);
                     //foreach (ENUM_SYMBOL_INFO_DOUBLE param in values)
@@ -270,9 +368,24 @@ namespace OsEngine.Market.Servers.MetaTrader
 
         #region 7 Security subscribe
 
-        void IServerRealization.Subscribe(Security security)
+        public void Subscribe(Security security)
         {
-            throw new NotImplementedException();
+            if (security == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (_mtapi.MarketBookAdd(security.NameId))
+                {
+                    _subscribedSecurities.Add(security);
+                }
+            }
+            catch (Exception ex)
+            {
+                SendLogMessage($"Error subscribe security {security.Name}. {ex.Message}", LogMessageType.Error);
+            }
         }
 
         public bool SubscribeNews()
@@ -282,6 +395,7 @@ namespace OsEngine.Market.Servers.MetaTrader
 
         public event Action<News> NewsEvent;
 
+        List<Security> _subscribedSecurities = new List<Security>();
         #endregion
 
         #region 8 Reading messages from data streams
