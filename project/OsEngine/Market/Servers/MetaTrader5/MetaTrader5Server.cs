@@ -1,37 +1,37 @@
-﻿using MtApi5;
+﻿using Grpc.Tradeapi.V1.Accounts;
+using MtApi5;
 using OsEngine.Entity;
 using OsEngine.Logging;
 using OsEngine.Market.Servers.Entity;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Threading;
-using TL;
 
-namespace OsEngine.Market.Servers.MetaTrader
+namespace OsEngine.Market.Servers.MetaTrader5
 {
-    public class MetaTraderServer : AServer
+    public class MetaTrader5Server : AServer
     {
-        public MetaTraderServer(int uniqueId)
+        public MetaTrader5Server(int uniqueId)
         {
             ServerNum = uniqueId;
 
-            MetaTraderServerRealization realization = new MetaTraderServerRealization();
+            MetaTrader5ServerRealization realization = new MetaTrader5ServerRealization();
             ServerRealization = realization;
 
             CreateParameterString("Host", "localhost");
             CreateParameterInt("Port", 8228);
+            //CreateParameterBoolean("Hedge Mode", false);
             CreateParameterString("Securities filter", "moex");
         }
     }
 
-    public class MetaTraderServerRealization : IServerRealization
+    public class MetaTrader5ServerRealization : IServerRealization
     {
 
         #region 1 Constructor, Status, Connection
 
-        public MetaTraderServerRealization()
+        public MetaTrader5ServerRealization()
         {
 
         }
@@ -40,8 +40,12 @@ namespace OsEngine.Market.Servers.MetaTrader
         static readonly MtApi5Client _mtapi = new MtApi5Client();
         public void Connect(WebProxy proxy)
         {
-            SendLogMessage("Start MetaTrader Windows terminal connection", LogMessageType.System);
+            SendLogMessage("Start MetaTrader5 Windows terminal connection", LogMessageType.System);
 
+            _metatraderHost = ((ServerParameterString)ServerParameters[0]).Value;
+            _metatraderPort = ((ServerParameterInt)ServerParameters[1]).Value;
+            //_isHedgeMode = ((ServerParameterBool)ServerParameters[2]).Value;
+            _securitiesFilter = ((ServerParameterString)ServerParameters[2]).Value;
 
             _mtapi.ConnectionStateChanged += _mtapi_ConnectionStateChanged;
             _mtapi.QuoteAdded += _mtapi_QuoteAdded;
@@ -50,11 +54,11 @@ namespace OsEngine.Market.Servers.MetaTrader
             _mtapi.OnLockTicks += NewTradeEventHandler;
             //_mtapi.OnLastTimeBar += NewCandleEventHandler;
             //_mtapi.OnTradeTransaction += MyTradeEventHandler;
-            _mtapi.QuoteList += MarketDepthEventHandler;
+            //_mtapi.QuoteList += MarketDepthEventHandler;
+            _mtapi.OnBookEvent += MarketDepthEventHandler;
 
 
-            _metatraderHost = ((ServerParameterString)ServerParameters[0]).Value;
-            _metatraderPort = ((ServerParameterInt)ServerParameters[1]).Value;
+
             _mtapi.BeginConnect(_metatraderHost, _metatraderPort);
             _connnectionWaiter.WaitOne();
 
@@ -67,6 +71,15 @@ namespace OsEngine.Market.Servers.MetaTrader
 
             SendLogMessage("Client connected.", LogMessageType.System);
             SetСonnected();
+        }
+
+        private void MarketDepthEventHandler(object sender, Mt5BookEventArgs e)
+        {
+            MarketDepth depth = new MarketDepth();
+            depth.SecurityNameCode = e.Symbol;
+            MqlBookInfo[]? mtBook;
+            _mtapi.MarketBookGet(e.Symbol, out mtBook);
+
         }
 
         private void NewTradeEventHandler(object sender, Mt5LockTicksEventArgs e)
@@ -96,38 +109,38 @@ namespace OsEngine.Market.Servers.MetaTrader
             NewTradesEvent?.Invoke(trade);
         }
 
-        private void MarketDepthEventHandler(object sender, Mt5QuotesEventArgs e)
-        {
-            MarketDepth depth = new MarketDepth();
-            //depth.SecurityNameCode = e.;
-            //depth.Time = ConvertToDateTimeFromUnixFromMilliseconds(baseMessage.data.ms_timestamp);
-            for (int i = 0; i < e.Quotes.Count(); i++)
-            {
-                Mt5Quote mtLevel = e.Quotes.ElementAt(i);
-                if (string.IsNullOrEmpty(depth.SecurityNameCode))
-                {
-                    depth.SecurityNameCode = mtLevel.Instrument;
-                    depth.Time = mtLevel.Time;
-                }
-                MarketDepthLevel level = new MarketDepthLevel();
-                if (mtLevel.Bid > 0)
-                {
-                    level.Price = Convert.ToDecimal(mtLevel.Bid);
-                    level.Bid = mtLevel.Volume;
-                }
-                else if (mtLevel.Ask > 0)
-                {
-                    level.Price = Convert.ToDecimal(mtLevel.Ask);
-                    level.Ask = mtLevel.Volume;
-                }
-            }
+        //private void MarketDepthEventHandler(object sender, Mt5QuotesEventArgs e)
+        //{
+        //    MarketDepth depth = new MarketDepth();
+        //    //depth.SecurityNameCode = e.;
+        //    //depth.Time = ConvertToDateTimeFromUnixFromMilliseconds(baseMessage.data.ms_timestamp);
+        //    for (int i = 0; i < e.Quotes.Count(); i++)
+        //    {
+        //        Mt5Quote mtLevel = e.Quotes.ElementAt(i);
+        //        if (string.IsNullOrEmpty(depth.SecurityNameCode))
+        //        {
+        //            depth.SecurityNameCode = mtLevel.Instrument;
+        //            depth.Time = mtLevel.Time;
+        //        }
+        //        MarketDepthLevel level = new MarketDepthLevel();
+        //        if (mtLevel.Bid > 0)
+        //        {
+        //            level.Price = Convert.ToDecimal(mtLevel.Bid);
+        //            level.Bid = mtLevel.Volume;
+        //        }
+        //        else if (mtLevel.Ask > 0)
+        //        {
+        //            level.Price = Convert.ToDecimal(mtLevel.Ask);
+        //            level.Ask = mtLevel.Volume;
+        //        }
+        //    }
 
 
-            if ((depth.Bids != null && depth.Bids.Count > 0) || (depth.Asks != null && depth.Asks.Count > 0))
-            {
-                MarketDepthEvent?.Invoke(depth);
-            }
-        }
+        //    if ((depth.Bids != null && depth.Bids.Count > 0) || (depth.Asks != null && depth.Asks.Count > 0))
+        //    {
+        //        MarketDepthEvent?.Invoke(depth);
+        //    }
+        //}
 
         void _mtapi_ConnectionStateChanged(object sender, Mt5ConnectionEventArgs e)
         {
@@ -166,7 +179,6 @@ namespace OsEngine.Market.Servers.MetaTrader
 
         void _mtapi_QuoteUpdate(object sender, Mt5QuoteEventArgs e)
         {
-            Console.WriteLine("Quote updated: {0} - {1} : {2}", e.Quote.Instrument, e.Quote.Bid, e.Quote.Ask);
             string msg = string.Format("Quote updated: {0} - {1} : {2}", e.Quote.Instrument, e.Quote.Bid, e.Quote.Ask);
             SendLogMessage(msg, LogMessageType.System);
         }
@@ -188,7 +200,7 @@ namespace OsEngine.Market.Servers.MetaTrader
                 return;
             }
 
-            SendLogMessage("Connection to MetaTrader Windows terminal closed.", LogMessageType.System);
+            SendLogMessage("Connection to MetaTrader5 Windows terminal closed.", LogMessageType.System);
 
             SetDisconnected();
         }
@@ -207,17 +219,16 @@ namespace OsEngine.Market.Servers.MetaTrader
 
         #region 2 Properties
 
-        public ServerType ServerType => ServerType.MetaTrader;
+        public ServerType ServerType => ServerType.MetaTrader5;
         private string _metatraderHost;
         private int _metatraderPort;
         private string _securitiesFilter;
-
+        //private bool _isHedgeMode = false;
         #endregion
 
         #region 3 Securities
-        void IServerRealization.GetSecurities()
+        public void GetSecurities()
         {
-            _securitiesFilter = ((ServerParameterString)ServerParameters[2]).Value;
             _securities = new List<Security>();
 
             try
@@ -305,6 +316,14 @@ namespace OsEngine.Market.Servers.MetaTrader
                 SendLogMessage("Get Securities error. " + e.Message, LogMessageType.Error);
             }
 
+            if (_mtapi.ConnectionState != Mt5ConnectionState.Connected)
+            {
+                SendLogMessage("Not connected. Check setup.", LogMessageType.System);
+                SetDisconnected();
+                return;
+            }
+
+
             if (_securities == null) return;
 
             //IEnumerator iSecs = secs.GetEnumerator();
@@ -314,9 +333,9 @@ namespace OsEngine.Market.Servers.MetaTrader
             //    security.Name = sec.Instrument;
             //    security.NameId = sec.Instrument;
             //    security.NameFull = sec.Instrument;
-            //    security.NameClass = ServerType.MetaTrader.ToString();
+            //    security.NameClass = ServerType.MetaTrader5.ToString();
             //    security.State = SecurityStateType.Activ;
-            //    security.Exchange = ServerType.MetaTrader.ToString();
+            //    security.Exchange = ServerType.MetaTrader5.ToString();
             //    _securities.Add(security);
             //}
 
@@ -332,14 +351,60 @@ namespace OsEngine.Market.Servers.MetaTrader
 
         #region 4 Portfolios
 
+        /// <summary>
+        /// https://www.mql5.com/ru/docs/constants/environment_state/accountinformation
+        /// </summary>
         public void GetPortfolios()
         {
-            //PortfolioEvent?.Invoke(_myPortfolios);
+            string accountId = _mtapi.AccountInfoInteger(ENUM_ACCOUNT_INFO_INTEGER.ACCOUNT_LOGIN).ToString();
+            Portfolio myPortfolio = _myPortfolios.Find(p => p.Number == accountId);
+
+            if (myPortfolio == null)
+            {
+                myPortfolio = new Portfolio();
+                myPortfolio.ServerType = ServerType.MetaTrader5;
+                myPortfolio.Number = accountId;
+                SendLogMessage("Account Leverage: " + _mtapi.AccountInfoInteger(ENUM_ACCOUNT_INFO_INTEGER.ACCOUNT_LEVERAGE), LogMessageType.System);
+                SendLogMessage("Account Currency: " + _mtapi.AccountInfoString(ENUM_ACCOUNT_INFO_STRING.ACCOUNT_CURRENCY), LogMessageType.System);
+                //SendLogMessage("Account Assets: " + _mtapi.AccountInfoDouble(ENUM_ACCOUNT_INFO_DOUBLE.ACCOUNT_ASSETS), LogMessageType.System);
+                myPortfolio.ValueCurrent = Convert.ToDecimal(_mtapi.AccountInfoDouble(ENUM_ACCOUNT_INFO_DOUBLE.ACCOUNT_BALANCE) + _mtapi.AccountInfoDouble(ENUM_ACCOUNT_INFO_DOUBLE.ACCOUNT_ASSETS));
+                myPortfolio.ValueBegin = myPortfolio.ValueCurrent;
+                myPortfolio.ValueBlocked = Convert.ToDecimal(_mtapi.AccountInfoDouble(ENUM_ACCOUNT_INFO_DOUBLE.ACCOUNT_COMMISSION_BLOCKED));
+                myPortfolio.UnrealizedPnl = Convert.ToDecimal(_mtapi.AccountInfoDouble(ENUM_ACCOUNT_INFO_DOUBLE.ACCOUNT_PROFIT));
+
+                _myPortfolios.Add(myPortfolio);
+            }
+            else
+            {
+                myPortfolio.ValueCurrent = Convert.ToDecimal(_mtapi.AccountInfoDouble(ENUM_ACCOUNT_INFO_DOUBLE.ACCOUNT_BALANCE));
+                myPortfolio.ValueBegin = myPortfolio.ValueCurrent;
+                //myPortfolio.ValueBlocked = Convert.ToDecimal(_mtapi.AccountInfoDouble(ENUM_ACCOUNT_INFO_DOUBLE.ACCOUNT_COMMISSION_BLOCKED));
+                myPortfolio.UnrealizedPnl = Convert.ToDecimal(_mtapi.AccountInfoDouble(ENUM_ACCOUNT_INFO_DOUBLE.ACCOUNT_PROFIT));
+            }
+
+            decimal valueBlocked = 0;
+            long positionsTotal = _mtapi.PositionsTotal();
+            for (int i = 0; i < positionsTotal; i++)
+            {
+                PositionOnBoard position = new PositionOnBoard();
+                position.PortfolioName = myPortfolio.Number;
+                position.SecurityNameCode = _mtapi.PositionGetSymbol(i);
+                position.ValueCurrent = Convert.ToDecimal(_mtapi.PositionGetDouble(ENUM_POSITION_PROPERTY_DOUBLE.POSITION_PRICE_CURRENT) * _mtapi.PositionGetDouble(ENUM_POSITION_PROPERTY_DOUBLE.POSITION_VOLUME));
+                position.ValueBegin = position.ValueCurrent;
+                position.ValueBlocked = position.ValueCurrent;
+                position.UnrealizedPnl = Convert.ToDecimal(_mtapi.PositionGetDouble(ENUM_POSITION_PROPERTY_DOUBLE.POSITION_PROFIT));
+                myPortfolio.SetNewPosition(position);
+
+                valueBlocked += position.ValueBlocked;
+            }
+
+            myPortfolio.ValueBlocked = valueBlocked;
+            PortfolioEvent?.Invoke(_myPortfolios);
         }
 
 
         public event Action<List<Portfolio>> PortfolioEvent;
-
+        private List<Portfolio> _myPortfolios = new List<Portfolio>();
         #endregion
 
         #region 5 Data
@@ -370,21 +435,53 @@ namespace OsEngine.Market.Servers.MetaTrader
 
         public void Subscribe(Security security)
         {
-            if (security == null)
-            {
-                return;
-            }
+            if (security == null) return;
 
             try
             {
-                if (_mtapi.MarketBookAdd(security.NameId))
+                MtSecurity mtSecurity = new MtSecurity();
+                mtSecurity.NameId = security.NameId;
+                mtSecurity.NameClass = security.NameClass;
+                mtSecurity.chartId = _mtapi.ChartOpen(security.NameId, ENUM_TIMEFRAMES.PERIOD_M1);
+                //if (_mtapi.MarketBookAdd(security.NameId))
+                if (mtSecurity.chartId > 0)
                 {
-                    _subscribedSecurities.Add(security);
+                    mtSecurity.isMarketBookAdded = _mtapi.MarketBookAdd(security.NameId);
+                    _subscribedSecurities.Add(mtSecurity);
                 }
             }
             catch (Exception ex)
             {
                 SendLogMessage($"Error subscribe security {security.Name}. {ex.Message}", LogMessageType.Error);
+            }
+        }
+
+        public void Unsubscribe(Security security)
+        {
+            if (security == null) return;
+
+            MtSecurity mtSecurity = null;
+            try
+            {
+                for (int i = 0; i < _subscribedSecurities.Count; i++)
+                {
+                    if (_subscribedSecurities[i].NameId == security.NameId 
+                        && _subscribedSecurities[i].NameClass == security.NameClass)
+                    {
+                        mtSecurity = _subscribedSecurities[i];
+                        _subscribedSecurities.RemoveAt(i);
+                        break;
+                    }
+                }
+
+                if (mtSecurity == null) return;
+                _mtapi.ChartClose(mtSecurity.chartId);
+                _mtapi.MarketBookRelease(mtSecurity.NameId);
+
+            }
+            catch (Exception exception)
+            {
+                SendLogMessage($"Unsubscribe error. {security.Name}: " + exception.ToString(), LogMessageType.Error);
             }
         }
 
@@ -395,7 +492,7 @@ namespace OsEngine.Market.Servers.MetaTrader
 
         public event Action<News> NewsEvent;
 
-        List<Security> _subscribedSecurities = new List<Security>();
+        List<MtSecurity> _subscribedSecurities = new List<MtSecurity>();
         #endregion
 
         #region 8 Reading messages from data streams
@@ -435,7 +532,7 @@ namespace OsEngine.Market.Servers.MetaTrader
             return order.State;
         }
 
-        void IServerRealization.GetAllActivOrders()
+        public void GetAllActivOrders()
         {
             throw new NotImplementedException();
         }
@@ -490,6 +587,16 @@ namespace OsEngine.Market.Servers.MetaTrader
 
         public event Action<SecurityVolumes> Volume24hUpdateEvent;
 
+        #endregion
+
+        #region 13 Structures
+        public class MtSecurity
+        {
+            public long chartId = 0;
+            public bool isMarketBookAdded = false;
+            public string NameId;
+            public string NameClass;
+        }
         #endregion
     }
 }

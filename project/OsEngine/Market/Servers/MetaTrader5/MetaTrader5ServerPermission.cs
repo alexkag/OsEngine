@@ -3,9 +3,9 @@
  *Ваши права на использование кода регулируются данной лицензией http://o-s-a.net/doc/license_simple_engine.pdf
 */
 
-namespace OsEngine.Market.Servers.MetaTrader
+namespace OsEngine.Market.Servers.MetaTrader5
 {
-    public class MetaTraderServerPermission : IServerPermission
+    public class MetaTrader5ServerPermission : IServerPermission
     {
         public ServerType ServerType
         {
@@ -120,7 +120,7 @@ namespace OsEngine.Market.Servers.MetaTrader
 
         public int WaitTimeSecondsAfterFirstStartToSendOrders
         {
-            get { return 10; }
+            get { return 30; }
         }
 
         public bool IsCanChangeOrderPrice
