@@ -1,5 +1,4 @@
-﻿using Grpc.Tradeapi.V1.Accounts;
-using MtApi5;
+﻿using MtApi5;
 using OsEngine.Entity;
 using OsEngine.Logging;
 using OsEngine.Market.Servers.Entity;
@@ -77,9 +76,16 @@ namespace OsEngine.Market.Servers.MetaTrader5
         {
             MarketDepth depth = new MarketDepth();
             depth.SecurityNameCode = e.Symbol;
-            MqlBookInfo[]? mtBook;
-            _mtapi.MarketBookGet(e.Symbol, out mtBook);
-
+            try
+            {
+                MqlBookInfo[]? mtBook;
+                _mtapi.MarketBookGet(e.Symbol, out mtBook);
+                var x = mtBook;
+            }
+            catch (Exception ex)
+            {
+                SendLogMessage("Market depth. Client disconnected.", LogMessageType.System);
+            }
         }
 
         private void NewTradeEventHandler(object sender, Mt5LockTicksEventArgs e)
@@ -223,6 +229,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
         private string _metatraderHost;
         private int _metatraderPort;
         private string _securitiesFilter;
+        private string _accountId;
         //private bool _isHedgeMode = false;
         #endregion
 
@@ -234,8 +241,8 @@ namespace OsEngine.Market.Servers.MetaTrader5
             try
             {
                 IEnumerable<Mt5Quote> secs = _mtapi.GetQuotes();
-                int secsCount = _mtapi.SymbolsTotal(false);
-                for (int i = 0; i < secsCount; i++)
+                int securitiesCount = _mtapi.SymbolsTotal(false);
+                for (int i = 0; i < securitiesCount; i++)
                 {
                     Security security = new Security();
                     security.NameId = _mtapi.SymbolName(i, false);
@@ -356,14 +363,14 @@ namespace OsEngine.Market.Servers.MetaTrader5
         /// </summary>
         public void GetPortfolios()
         {
-            string accountId = _mtapi.AccountInfoInteger(ENUM_ACCOUNT_INFO_INTEGER.ACCOUNT_LOGIN).ToString();
-            Portfolio myPortfolio = _myPortfolios.Find(p => p.Number == accountId);
+            _accountId = _mtapi.AccountInfoInteger(ENUM_ACCOUNT_INFO_INTEGER.ACCOUNT_LOGIN).ToString();
+            Portfolio myPortfolio = _myPortfolios.Find(p => p.Number == _accountId);
 
             if (myPortfolio == null)
             {
                 myPortfolio = new Portfolio();
                 myPortfolio.ServerType = ServerType.MetaTrader5;
-                myPortfolio.Number = accountId;
+                myPortfolio.Number = _accountId;
                 SendLogMessage("Account Leverage: " + _mtapi.AccountInfoInteger(ENUM_ACCOUNT_INFO_INTEGER.ACCOUNT_LEVERAGE), LogMessageType.System);
                 SendLogMessage("Account Currency: " + _mtapi.AccountInfoString(ENUM_ACCOUNT_INFO_STRING.ACCOUNT_CURRENCY), LogMessageType.System);
                 //SendLogMessage("Account Assets: " + _mtapi.AccountInfoDouble(ENUM_ACCOUNT_INFO_DOUBLE.ACCOUNT_ASSETS), LogMessageType.System);
@@ -383,8 +390,8 @@ namespace OsEngine.Market.Servers.MetaTrader5
             }
 
             decimal valueBlocked = 0;
-            long positionsTotal = _mtapi.PositionsTotal();
-            for (int i = 0; i < positionsTotal; i++)
+            long positionsCount = _mtapi.PositionsTotal();
+            for (int i = 0; i < positionsCount; i++)
             {
                 PositionOnBoard position = new PositionOnBoard();
                 position.PortfolioName = myPortfolio.Number;
@@ -465,7 +472,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
             {
                 for (int i = 0; i < _subscribedSecurities.Count; i++)
                 {
-                    if (_subscribedSecurities[i].NameId == security.NameId 
+                    if (_subscribedSecurities[i].NameId == security.NameId
                         && _subscribedSecurities[i].NameClass == security.NameClass)
                     {
                         mtSecurity = _subscribedSecurities[i];
@@ -534,7 +541,30 @@ namespace OsEngine.Market.Servers.MetaTrader5
 
         public void GetAllActivOrders()
         {
-            throw new NotImplementedException();
+            long ordersCount = _mtapi.OrdersTotal();
+
+            //List<Order> orders = new List<Order>();
+            for (int i = 0; i < ordersCount; i++)
+            {
+                Order order = new Order();
+                order.PortfolioNumber = _accountId;
+                //order.NumberMarket = _mtapi.OrderGetTicket(i).ToString();
+                order.NumberMarket = _mtapi.OrderGetString(ENUM_ORDER_PROPERTY_STRING.ORDER_EXTERNAL_ID);
+                long pid = _mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_POSITION_ID);
+                long magic = _mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_MAGIC);
+                order.Price = Convert.ToDecimal(_mtapi.OrderGetDouble(ENUM_ORDER_PROPERTY_DOUBLE.ORDER_PRICE_OPEN));
+                order.Volume = Convert.ToDecimal(_mtapi.OrderGetDouble(ENUM_ORDER_PROPERTY_DOUBLE.ORDER_VOLUME_INITIAL));
+                order.State = GetOrderStateType(_mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_STATE));
+                order.TimeCreate = ConvertToDateTimeFromUnixFromMilliseconds(_mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_TIME_SETUP_MSC));
+                order.TimeCallBack = order.TimeCreate;
+                long orderType = _mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_TYPE);
+                order.TypeOrder = GetOrderPriceType(orderType);
+                order.Side = GetOrderSide(orderType);
+
+                MyOrderEvent?.Invoke(order);
+            }
+
+
         }
 
         public void CancelAllOrders()
@@ -572,6 +602,97 @@ namespace OsEngine.Market.Servers.MetaTrader5
             }
         }
 
+
+        /// <summary>
+        ///  ORDER_STATE_STARTED = 0,            //Order checked, but not yet accepted by broker
+        //ORDER_STATE_PLACED = 1,             //Order accepted
+        //ORDER_STATE_CANCELED = 2,           //Order canceled by client
+        //ORDER_STATE_PARTIAL = 3,            //Order partially executed
+        //ORDER_STATE_FILLED = 4,             //Order fully executed
+        //ORDER_STATE_REJECTED = 5,           //Order rejected
+        //ORDER_STATE_EXPIRED = 6,            //Order expired
+        //ORDER_STATE_REQUEST_ADD = 7,        //Order is being registered (placing to the trading system)
+        //ORDER_STATE_REQUEST_MODIFY = 8,     //Order is being modified (changing its parameters)
+        //ORDER_STATE_REQUEST_CANCEL = 9      //Order is being deleted (deleting from the trading system)
+        /// </summary>
+        /// <param name="status"></param>
+        /// <returns></returns>
+        private OrderStateType GetOrderStateType(long status)
+        {
+            return status switch
+            {
+                0 => OrderStateType.Pending,
+                1 => OrderStateType.Active,
+                2 => OrderStateType.Cancel,
+                3 => OrderStateType.Partial,
+                4 => OrderStateType.Done,
+                5 => OrderStateType.Fail,
+                6 => OrderStateType.Cancel,
+                7 => OrderStateType.Pending,
+                8 => OrderStateType.Pending,
+                9 => OrderStateType.Pending,
+                _ => OrderStateType.None
+            };
+        }
+
+        /// <summary>
+        /// ORDER_TYPE_BUY = 0,             //Market Buy order
+        //ORDER_TYPE_SELL = 1,            //Market Sell order
+        //ORDER_TYPE_BUY_LIMIT = 2,       //Buy Limit pending order
+        //ORDER_TYPE_SELL_LIMIT = 3,      //Sell Limit pending order
+        //ORDER_TYPE_BUY_STOP = 4,        //Buy Stop pending order
+        //ORDER_TYPE_SELL_STOP = 5,       //Sell Stop pending order
+        //ORDER_TYPE_BUY_STOP_LIMIT = 6,  //Upon reaching the order price, a pending Buy Limit order is places at the StopLimit price
+        //ORDER_TYPE_SELL_STOP_LIMIT = 7, //Upon reaching the order price, a pending Sell Limit order is places at the StopLimit price
+        //ORDER_TYPE_CLOSE_BY = 8         //Order to close a position by an opposite one
+        /// </summary>
+        /// <param name="type"></param>
+        /// <returns></returns>
+        private OrderPriceType GetOrderPriceType(long type)
+        {
+            return type switch
+            {
+                2 => OrderPriceType.Limit,
+                3 => OrderPriceType.Limit,
+                //6 => OrderPriceType.Limit,
+                //7 => OrderPriceType.Limit,
+                8 => throw new Exception("Cant get Order price type"),
+                _ => OrderPriceType.Market
+            };
+        }
+
+        private Side GetOrderSide(long type)
+        {
+            return type switch
+            {
+                0 => Side.Buy,
+                2 => Side.Buy,
+                4 => Side.Buy,
+                6 => Side.Buy,
+                1 => Side.Sell,
+                3 => Side.Sell,
+                5 => Side.Sell,
+                7 => Side.Sell,
+                8 => throw new Exception("Cant get Order side"),
+                _ => Side.None
+            };
+        }
+
+        //public static DateTime UnixTimeStampToDateTime(double unixTimeStamp)
+        //{
+        //    // Unix timestamp is seconds past epoch
+        //    DateTime dateTime = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
+        //    dateTime = dateTime.AddSeconds(unixTimeStamp).ToLocalTime();
+        //    return dateTime;
+        //}
+
+        private DateTime ConvertToDateTimeFromUnixFromMilliseconds(long milliseconds)
+        {
+            DateTime origin = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
+            DateTime result = origin.AddMilliseconds(milliseconds).AddHours(3); // force to Moscow time zone gmt+3
+
+            return result;
+        }
         #endregion
 
         #region 12 Log
