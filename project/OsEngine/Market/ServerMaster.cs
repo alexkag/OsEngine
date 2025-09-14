@@ -76,7 +76,7 @@ using OsEngine.Market.Servers.TelegramNews;
 using OsEngine.Market.Servers.Bitfinex.BitfinexFutures;
 using OsEngine.Market.Servers.FinamGrpc;
 using OsEngine.Market.Servers.BinanceData;
-using OsEngine.Market.Servers.MetaTrader;
+using OsEngine.Market.Servers.MetaTrader5;
 using OsEngine.Market.AutoFollow;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader;
@@ -330,7 +330,7 @@ namespace OsEngine.Market
                 serverTypes.Add(ServerType.TelegramNews);
                 serverTypes.Add(ServerType.BinanceData);
                 serverTypes.Add(ServerType.AscendexSpot);
-                serverTypes.Add(ServerType.MetaTrader);
+                serverTypes.Add(ServerType.MetaTrader5);
 
                 // а теперь сортируем в зависимости от предпочтений пользователя
 
@@ -436,7 +436,7 @@ namespace OsEngine.Market
                 serverTypes.Add(ServerType.BinanceData);
                 serverTypes.Add(ServerType.AscendexSpot);
                 serverTypes.Add(ServerType.OKXData);
-                serverTypes.Add(ServerType.MetaTrader);
+                serverTypes.Add(ServerType.MetaTrader5);
 
                 return serverTypes;
             }
@@ -811,9 +811,9 @@ namespace OsEngine.Market
                 {
                     newServer = new AscendexSpotServer(uniqueNum);
                 }
-                else if (type == ServerType.MetaTrader)
+                else if (type == ServerType.MetaTrader5)
                 {
-                    newServer = new MetaTraderServer(uniqueNum);
+                    newServer = new MetaTrader5Server(uniqueNum);
                 }
 
                 if (newServer == null)
@@ -1568,9 +1568,9 @@ namespace OsEngine.Market
                 {
                     serverPermission = new OKXDataServerPermission();
                 }
-                else if (type == ServerType.MetaTrader)
+                else if (type == ServerType.MetaTrader5)
                 {
-                    serverPermission = new MetaTraderServerPermission();
+                    serverPermission = new MetaTrader5ServerPermission();
                 }
 
                 if (serverPermission != null)
@@ -2361,9 +2361,9 @@ namespace OsEngine.Market
         OKXData,
 
         /// <summary>
-        /// MetaTrader Adapter
-        /// Адаптер к Метатрейдер
+        /// MetaTrader5 Adapter
+        /// Адаптер к МетаТрейдер5
         /// </summary>
-        MetaTrader
+        MetaTrader5
     }
 }
