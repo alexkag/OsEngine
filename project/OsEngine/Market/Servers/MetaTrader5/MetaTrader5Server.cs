@@ -4,6 +4,7 @@ using OsEngine.Logging;
 using OsEngine.Market.Servers.Entity;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Threading;
 
@@ -75,18 +76,48 @@ namespace OsEngine.Market.Servers.MetaTrader5
         private void MarketDepthEventHandler(object sender, Mt5BookEventArgs e)
         {
             MarketDepth depth = new MarketDepth();
+            //Security security = GetSecurity(e.Symbol);
             depth.SecurityNameCode = e.Symbol;
+            //if (security == null) return;
+            //depth.SecurityNameCode = security.Name;
             try
             {
                 MqlBookInfo[]? mtBook;
                 _mtapi.MarketBookGet(e.Symbol, out mtBook);
                 var x = mtBook;
+
+                if (mtBook == null) return;
+                for (int i = 0; i < mtBook.Count(); i++)
+                {
+                    MarketDepthLevel level = new MarketDepthLevel();
+                    level.Price = mtBook[i].price.ToString().ToDecimal();
+                    if (mtBook[i].type == ENUM_BOOK_TYPE.BOOK_TYPE_BUY)
+                    {
+                        level.Bid = mtBook[i].volume.ToString().ToDecimal();
+                        depth.Bids.Add(level);
+                    }
+                    if (mtBook[i].type == ENUM_BOOK_TYPE.BOOK_TYPE_SELL)
+                    {
+                        level.Ask = mtBook[i].volume.ToString().ToDecimal();
+                        depth.Asks.Add(level);
+                    }
+                }
             }
             catch (Exception ex)
             {
                 SendLogMessage("Market depth. Client disconnected.", LogMessageType.System);
             }
+
+            if (_lastMdTime != DateTime.MinValue &&
+                _lastMdTime >= depth.Time)
+            {
+                depth.Time = _lastMdTime.AddTicks(1);
+            }
+
+            _lastMdTime = depth.Time;
+            MarketDepthEvent?.Invoke(depth);
         }
+        private DateTime _lastMdTime = DateTime.MinValue;
 
         private void NewTradeEventHandler(object sender, Mt5LockTicksEventArgs e)
         {
@@ -250,6 +281,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
                     security.NameClass = _mtapi.SymbolInfoString(security.NameId, ENUM_SYMBOL_INFO_STRING.SYMBOL_ISIN);
                     if (string.IsNullOrEmpty(security.NameClass))
                     {
+                        continue;
                         security.NameClass = "Other";
                     }
 
@@ -273,14 +305,14 @@ namespace OsEngine.Market.Servers.MetaTrader5
                     //var res2 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_BASIS);
                     try
                     {
-                        security.Name = _mtapi.SymbolInfoString(security.NameId, ENUM_SYMBOL_INFO_STRING.SYMBOL_DESCRIPTION) ?? security.Name + "@" + security.NameClass;
+                        security.NameFull = _mtapi.SymbolInfoString(security.NameId, ENUM_SYMBOL_INFO_STRING.SYMBOL_DESCRIPTION) ?? security.Name + "@" + security.NameClass;
                     }
                     catch (Exception ex)
                     {
                         SendLogMessage($"Get Security data error. Security {security.NameId}. Index {i}.", LogMessageType.Error);
-                        security.Name = "Other";
+                        //security.Name = "Other";
                     }
-                    security.NameFull = security.NameId + "@" + security.NameClass;
+                    //security.NameFull = security.NameId;// + "@" + security.NameClass;
                     security.Decimals = Convert.ToInt16(_mtapi.SymbolInfoInteger(security.Name, ENUM_SYMBOL_INFO_INTEGER.SYMBOL_DIGITS));
 
                     // Платформо зависимо
@@ -692,6 +724,20 @@ namespace OsEngine.Market.Servers.MetaTrader5
             DateTime result = origin.AddMilliseconds(milliseconds).AddHours(3); // force to Moscow time zone gmt+3
 
             return result;
+        }
+
+        private Security GetSecurity(string symbol)
+        {
+            if (_securities == null) return null;
+            for (int i = 0; i < _securities.Count; i++)
+            {
+                if (_securities[i].NameId == symbol)
+                {
+                    return _securities[i];
+                }
+            }
+
+            return null;
         }
         #endregion
 
