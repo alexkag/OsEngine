@@ -102,6 +102,8 @@ namespace OsEngine.Market.Servers.MetaTrader5
                         depth.Asks.Add(level);
                     }
                 }
+
+                depth.Asks.Reverse();
             }
             catch (Exception ex)
             {
@@ -223,6 +225,11 @@ namespace OsEngine.Market.Servers.MetaTrader5
 
         public void Dispose()
         {
+            for (int i = 0; i < _subscribedSecurities.Count; i++)
+            {
+                Unsubscribe(_subscribedSecurities[i].security);
+            }
+
             _mtapi.BeginDisconnect();
 
             _mtapi.ConnectionStateChanged -= _mtapi_ConnectionStateChanged;
@@ -262,6 +269,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
         private string _securitiesFilter;
         private string _accountId;
         //private bool _isHedgeMode = false;
+        private int _timezoneOffset = 3;
         #endregion
 
         #region 3 Securities
@@ -303,16 +311,16 @@ namespace OsEngine.Market.Servers.MetaTrader5
                     //var res1 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_PATH);
                     //var res1 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_CATEGORY);
                     //var res2 = _mtapi.SymbolInfoString(security.Name, ENUM_SYMBOL_INFO_STRING.SYMBOL_BASIS);
-                    try
-                    {
-                        security.NameFull = _mtapi.SymbolInfoString(security.NameId, ENUM_SYMBOL_INFO_STRING.SYMBOL_DESCRIPTION) ?? security.Name + "@" + security.NameClass;
-                    }
-                    catch (Exception ex)
-                    {
-                        SendLogMessage($"Get Security data error. Security {security.NameId}. Index {i}.", LogMessageType.Error);
-                        //security.Name = "Other";
-                    }
-                    //security.NameFull = security.NameId;// + "@" + security.NameClass;
+                    //try
+                    //{
+                    //    security.NameFull = _mtapi.SymbolInfoString(security.NameId, ENUM_SYMBOL_INFO_STRING.SYMBOL_DESCRIPTION) ?? security.Name + "@" + security.NameClass;
+                    //}
+                    //catch (Exception ex)
+                    //{
+                    //    SendLogMessage($"Get Security data error. Security {security.NameId}. Index {i}.", LogMessageType.Error);
+                    //    //security.Name = "Other";
+                    //}
+                    security.NameFull = security.NameId;// + "@" + security.NameClass;
                     security.Decimals = Convert.ToInt16(_mtapi.SymbolInfoInteger(security.Name, ENUM_SYMBOL_INFO_INTEGER.SYMBOL_DIGITS));
 
                     // Платформо зависимо
@@ -449,14 +457,42 @@ namespace OsEngine.Market.Servers.MetaTrader5
         #region 5 Data
         public List<Candle> GetLastCandleHistory(Security security, TimeFrameBuilder timeFrameBuilder, int candleCount)
         {
-            List<Candle> candles = new List<Candle>();
+            DateTime timeStart = DateTime.UtcNow.AddHours(_timezoneOffset) - TimeSpan.FromMinutes(timeFrameBuilder.TimeFrameTimeSpan.TotalMinutes * candleCount);
+            DateTime timeEnd = DateTime.UtcNow.AddHours(_timezoneOffset);
+
+            List<Candle> candles = GetCandleDataToSecurity(security, timeFrameBuilder, timeStart, timeEnd, timeStart);
+            //List<Candle> candles = new List<Candle>();
 
             return candles;
         }
 
         public List<Candle> GetCandleDataToSecurity(Security security, TimeFrameBuilder timeFrameBuilder, DateTime startTime, DateTime endTime, DateTime actualTime)
         {
-            throw new NotImplementedException();
+            if (startTime != actualTime)
+            {
+                startTime = actualTime;
+            }
+
+            List<Candle> candles = new List<Candle>();
+            ENUM_TIMEFRAMES mtTf = GetMtTimeFrame(timeFrameBuilder.TimeFrame);
+            _mtapi.CopyRates(security.NameId, mtTf, startTime, endTime, out MqlRates[]? mtCandles);
+            if (mtCandles == null) return null;
+            for (int i = 0; i < mtCandles.Length; i++)
+            {
+                Candle candle = new Candle();
+                candle.Open = mtCandles[i].open.ToString().ToDecimal();
+                candle.Close = mtCandles[i].close.ToString().ToDecimal();
+                candle.High = mtCandles[i].high.ToString().ToDecimal();
+                candle.Low = mtCandles[i].low.ToString().ToDecimal();
+                candle.Volume = mtCandles[i].real_volume.ToString().ToDecimal();
+                candle.TimeStart = mtCandles[i].time;
+                if (candle.TimeStart >= startTime && candle.TimeStart <= endTime)
+                {
+                    candles.Add(candle);
+                }
+            }
+
+            return candles.Count == 0 ? null : candles;
         }
 
         public List<Trade> GetTickDataToSecurity(Security security, DateTime startTime, DateTime endTime, DateTime actualTime)
@@ -479,8 +515,9 @@ namespace OsEngine.Market.Servers.MetaTrader5
             try
             {
                 MtSecurity mtSecurity = new MtSecurity();
-                mtSecurity.NameId = security.NameId;
-                mtSecurity.NameClass = security.NameClass;
+                //mtSecurity.NameId = security.NameId;
+                //mtSecurity.NameClass = security.NameClass;
+                mtSecurity.security = security;
                 mtSecurity.chartId = _mtapi.ChartOpen(security.NameId, ENUM_TIMEFRAMES.PERIOD_M1);
                 //if (_mtapi.MarketBookAdd(security.NameId))
                 if (mtSecurity.chartId > 0)
@@ -504,8 +541,8 @@ namespace OsEngine.Market.Servers.MetaTrader5
             {
                 for (int i = 0; i < _subscribedSecurities.Count; i++)
                 {
-                    if (_subscribedSecurities[i].NameId == security.NameId
-                        && _subscribedSecurities[i].NameClass == security.NameClass)
+                    if (_subscribedSecurities[i].security.NameId == security.NameId
+                        && _subscribedSecurities[i].security.NameClass == security.NameClass)
                     {
                         mtSecurity = _subscribedSecurities[i];
                         _subscribedSecurities.RemoveAt(i);
@@ -515,7 +552,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
 
                 if (mtSecurity == null) return;
                 _mtapi.ChartClose(mtSecurity.chartId);
-                _mtapi.MarketBookRelease(mtSecurity.NameId);
+                _mtapi.MarketBookRelease(mtSecurity.security.NameId);
 
             }
             catch (Exception exception)
@@ -726,18 +763,54 @@ namespace OsEngine.Market.Servers.MetaTrader5
             return result;
         }
 
-        private Security GetSecurity(string symbol)
-        {
-            if (_securities == null) return null;
-            for (int i = 0; i < _securities.Count; i++)
-            {
-                if (_securities[i].NameId == symbol)
-                {
-                    return _securities[i];
-                }
-            }
+        //private Security GetSecurity(string symbol)
+        //{
+        //    if (_securities == null) return null;
+        //    for (int i = 0; i < _securities.Count; i++)
+        //    {
+        //        if (_securities[i].NameId == symbol)
+        //        {
+        //            return _securities[i];
+        //        }
+        //    }
 
-            return null;
+        //    return null;
+        //}
+
+        //private FTimeFrame CreateTimeFrameInterval(TimeFrame tf)
+        //{
+        //    return tf switch
+        //    {
+        //        TimeFrame.Min1 => FTimeFrame.M1,
+        //        TimeFrame.Min5 => FTimeFrame.M5,
+        //        TimeFrame.Min15 => FTimeFrame.M15,
+        //        TimeFrame.Min30 => FTimeFrame.M30,
+        //        TimeFrame.Hour1 => FTimeFrame.H1,
+        //        TimeFrame.Hour2 => FTimeFrame.H2,
+        //        TimeFrame.Hour4 => FTimeFrame.H4,
+        //        TimeFrame.Day => FTimeFrame.D,
+        //        _ => FTimeFrame.Unspecified
+        //    };
+        //}
+
+        private ENUM_TIMEFRAMES GetMtTimeFrame(TimeFrame tf)
+        {
+            return tf switch
+            {
+                TimeFrame.Min1 => ENUM_TIMEFRAMES.PERIOD_M1,
+                TimeFrame.Min2 => ENUM_TIMEFRAMES.PERIOD_M2,
+                TimeFrame.Min3 => ENUM_TIMEFRAMES.PERIOD_M3,
+                TimeFrame.Min5 => ENUM_TIMEFRAMES.PERIOD_M5,
+                TimeFrame.Min10 => ENUM_TIMEFRAMES.PERIOD_M10,
+                TimeFrame.Min15 => ENUM_TIMEFRAMES.PERIOD_M15,
+                TimeFrame.Min20 => ENUM_TIMEFRAMES.PERIOD_M20,
+                TimeFrame.Min30 => ENUM_TIMEFRAMES.PERIOD_M30,
+                TimeFrame.Hour1 => ENUM_TIMEFRAMES.PERIOD_H1,
+                TimeFrame.Hour2 => ENUM_TIMEFRAMES.PERIOD_H2,
+                TimeFrame.Hour4 => ENUM_TIMEFRAMES.PERIOD_H4,
+                TimeFrame.Day => ENUM_TIMEFRAMES.PERIOD_D1,
+                _ => ENUM_TIMEFRAMES.PERIOD_CURRENT
+            };
         }
         #endregion
 
@@ -761,8 +834,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
         {
             public long chartId = 0;
             public bool isMarketBookAdded = false;
-            public string NameId;
-            public string NameClass;
+            public Security security = null;
         }
         #endregion
     }
