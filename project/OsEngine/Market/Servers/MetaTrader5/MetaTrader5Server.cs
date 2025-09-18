@@ -591,9 +591,75 @@ namespace OsEngine.Market.Servers.MetaTrader5
 
         #region 10 Trade
 
+        //https://www.mql5.com/ru/docs/constants/tradingconstants/enum_trade_request_actions#trade_action_pending
+        // https://www.mql5.com/ru/docs/constants/structures/mqltraderequest
         public void SendOrder(Order order)
         {
+            MqlTradeRequest mtOrder = new MqlTradeRequest();
+            mtOrder.Magic = (ulong)order.NumberUser;
+            mtOrder.Symbol = order.SecurityNameCode;
+            mtOrder.Volume = Convert.ToDouble(order.Volume);
+            mtOrder.Type_time = ENUM_ORDER_TYPE_TIME.ORDER_TIME_GTC;
+            //mtOrder.Comment = order.NumberUser.ToString();
+            //mtOrder.Position = (ulong)order.NumberUser;
+            //mtOrder.Type_filling = ENUM_ORDER_TYPE_FILLING.ORDER_FILLING_RETURN;
+            if (order.TypeOrder == OrderPriceType.Limit)
+            {
+                mtOrder.Action = ENUM_TRADE_REQUEST_ACTIONS.TRADE_ACTION_PENDING;
+                mtOrder.Price = Convert.ToDouble(order.Price);
+                if (order.Side == Side.Buy)
+                {
+                    mtOrder.Type = ENUM_ORDER_TYPE.ORDER_TYPE_BUY_LIMIT;
+                }
 
+                if (order.Side == Side.Sell)
+                {
+                    mtOrder.Type = ENUM_ORDER_TYPE.ORDER_TYPE_SELL_LIMIT;
+                }
+
+            }
+            else if (order.TypeOrder == OrderPriceType.Market)
+            {
+                mtOrder.Action = ENUM_TRADE_REQUEST_ACTIONS.TRADE_ACTION_DEAL;
+                mtOrder.Type_filling = ENUM_ORDER_TYPE_FILLING.ORDER_FILLING_RETURN;
+
+                if (order.Side == Side.Buy)
+                {
+                    mtOrder.Type = ENUM_ORDER_TYPE.ORDER_TYPE_BUY;
+                }
+
+                if (order.Side == Side.Sell)
+                {
+                    mtOrder.Type = ENUM_ORDER_TYPE.ORDER_TYPE_SELL;
+                }
+            }
+            _mtapi.OrderSend(mtOrder, out MqlTradeResult orderState);
+
+            if (orderState == null)
+            {
+                InvokeOrderFail(order);
+                return;
+            }
+
+            order.State = GetRetOrderStateType(orderState.Retcode);
+            order.NumberMarket = orderState.Request_id.ToString();
+            order.TimeCallBack = DateTime.UtcNow.AddHours(_timezoneOffset);
+            if (orderState.Price != null)
+            {
+                order.Price = orderState.Price.ToString().ToDecimal();
+            }
+            order.Volume = orderState.Volume.ToString().ToDecimal();
+
+            if (order.State == OrderStateType.Cancel)
+            {
+                order.TimeCancel = DateTime.UtcNow.AddHours(_timezoneOffset);
+            }
+
+            if (order.State == OrderStateType.Done)
+            {
+                order.TimeDone = DateTime.UtcNow.AddHours(_timezoneOffset);
+            }
+            MyOrderEvent?.Invoke(order);
         }
 
 
@@ -652,6 +718,11 @@ namespace OsEngine.Market.Servers.MetaTrader5
         #endregion
 
         #region 11 Helpers
+        private void InvokeOrderFail(Order order)
+        {
+            order.State = OrderStateType.Fail;
+            MyOrderEvent?.Invoke(order);
+        }
 
         public void SetDisconnected()
         {
@@ -701,6 +772,45 @@ namespace OsEngine.Market.Servers.MetaTrader5
                 8 => OrderStateType.Pending,
                 9 => OrderStateType.Pending,
                 _ => OrderStateType.None
+            };
+        }
+
+        // https://www.mql5.com/ru/docs/constants/errorswarnings/enum_trade_return_codes
+        private OrderStateType GetRetOrderStateType(long status)
+        {
+            return status switch
+            {
+                10004 => OrderStateType.Fail, // TRADE_RETCODE_REQUOTE
+                10006 => OrderStateType.Fail, // TRADE_RETCODE_REJECT
+                10007 => OrderStateType.Cancel, // TRADE_RETCODE_CANCEL
+                10008 => OrderStateType.Active, // TRADE_RETCODE_PLACED
+                10009 => OrderStateType.Done, // TRADE_RETCODE_DONE
+                10010 => OrderStateType.Partial, // TRADE_RETCODE_DONE_PARTIAL
+                10011 => OrderStateType.Fail, // TRADE_RETCODE_ERROR
+                10012 => OrderStateType.Cancel, // TRADE_RETCODE_TIMEOUT
+                10013 => OrderStateType.Fail, // TRADE_RETCODE_INVALID
+                10014 => OrderStateType.Fail, // TRADE_RETCODE_INVALID_VOLUME
+                10015 => OrderStateType.Fail, // TRADE_RETCODE_INVALID_PRICE
+                10016 => OrderStateType.Fail, // TRADE_RETCODE_INVALID_STOPS
+                10017 => OrderStateType.Fail, // TRADE_RETCODE_TRADE_DISABLED
+                10018 => OrderStateType.Fail, // TRADE_RETCODE_MARKET_CLOSED
+                10019 => OrderStateType.Fail, // TRADE_RETCODE_NO_MONEY
+                10020 => OrderStateType.Fail, // TRADE_RETCODE_PRICE_CHANGED
+                10021 => OrderStateType.Fail, // TRADE_RETCODE_PRICE_OFF
+                10022 => OrderStateType.Fail, // TRADE_RETCODE_INVALID_EXPIRATION
+                10023 => OrderStateType.Fail, // TRADE_RETCODE_ORDER_CHANGED
+                10024 => OrderStateType.Fail, // TRADE_RETCODE_TOO_MANY_REQUESTS
+                10025 => OrderStateType.None, // TRADE_RETCODE_NO_CHANGES (Check)
+                10026 => OrderStateType.Fail, // TRADE_RETCODE_SERVER_DISABLES_AT
+                10027 => OrderStateType.Fail, // TRADE_RETCODE_CLIENT_DISABLES_AT
+                10028 => OrderStateType.Fail, // TRADE_RETCODE_LOCKED
+                10029 => OrderStateType.Fail, // TRADE_RETCODE_FROZEN
+                10030 => OrderStateType.Fail, // TRADE_RETCODE_INVALID_FILL
+                10031 => OrderStateType.Fail, // TRADE_RETCODE_CONNECTION
+                10032 => OrderStateType.Fail, // TRADE_RETCODE_ONLY_REAL
+                10033 => OrderStateType.Fail, // TRADE_RETCODE_LIMIT_ORDERS
+                10034 => OrderStateType.Fail, // TRADE_RETCODE_LIMIT_VOLUME
+                _ => OrderStateType.Fail
             };
         }
 
