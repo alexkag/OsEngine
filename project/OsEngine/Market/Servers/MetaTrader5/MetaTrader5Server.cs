@@ -4,9 +4,9 @@ using OsEngine.Logging;
 using OsEngine.Market.Servers.Entity;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Threading;
+using static Google.Rpc.Context.AttributeContext.Types;
 
 namespace OsEngine.Market.Servers.MetaTrader5
 {
@@ -82,12 +82,11 @@ namespace OsEngine.Market.Servers.MetaTrader5
             //depth.SecurityNameCode = security.Name;
             try
             {
-                MqlBookInfo[]? mtBook;
-                _mtapi.MarketBookGet(e.Symbol, out mtBook);
+                _mtapi.MarketBookGet(e.Symbol, out MqlBookInfo[]? mtBook);
                 var x = mtBook;
 
                 if (mtBook == null) return;
-                for (int i = 0; i < mtBook.Count(); i++)
+                for (int i = 0; i < mtBook.Length; i++)
                 {
                     MarketDepthLevel level = new MarketDepthLevel();
                     level.Price = mtBook[i].price.ToString().ToDecimal();
@@ -595,45 +594,45 @@ namespace OsEngine.Market.Servers.MetaTrader5
         // https://www.mql5.com/ru/docs/constants/structures/mqltraderequest
         public void SendOrder(Order order)
         {
-            MqlTradeRequest mtOrder = new MqlTradeRequest();
-            mtOrder.Magic = (ulong)order.NumberUser;
-            mtOrder.Symbol = order.SecurityNameCode;
-            mtOrder.Volume = Convert.ToDouble(order.Volume);
-            mtOrder.Type_time = ENUM_ORDER_TYPE_TIME.ORDER_TIME_GTC;
+            MqlTradeRequest request = new MqlTradeRequest();
+            request.Magic = (ulong)order.NumberUser;
+            request.Symbol = order.SecurityNameCode;
+            request.Volume = Convert.ToDouble(order.Volume);
+            request.Type_time = ENUM_ORDER_TYPE_TIME.ORDER_TIME_GTC;
             //mtOrder.Comment = order.NumberUser.ToString();
             //mtOrder.Position = (ulong)order.NumberUser;
             //mtOrder.Type_filling = ENUM_ORDER_TYPE_FILLING.ORDER_FILLING_RETURN;
             if (order.TypeOrder == OrderPriceType.Limit)
             {
-                mtOrder.Action = ENUM_TRADE_REQUEST_ACTIONS.TRADE_ACTION_PENDING;
-                mtOrder.Price = Convert.ToDouble(order.Price);
+                request.Action = ENUM_TRADE_REQUEST_ACTIONS.TRADE_ACTION_PENDING;
+                request.Price = Convert.ToDouble(order.Price);
                 if (order.Side == Side.Buy)
                 {
-                    mtOrder.Type = ENUM_ORDER_TYPE.ORDER_TYPE_BUY_LIMIT;
+                    request.Type = ENUM_ORDER_TYPE.ORDER_TYPE_BUY_LIMIT;
                 }
 
                 if (order.Side == Side.Sell)
                 {
-                    mtOrder.Type = ENUM_ORDER_TYPE.ORDER_TYPE_SELL_LIMIT;
+                    request.Type = ENUM_ORDER_TYPE.ORDER_TYPE_SELL_LIMIT;
                 }
 
             }
             else if (order.TypeOrder == OrderPriceType.Market)
             {
-                mtOrder.Action = ENUM_TRADE_REQUEST_ACTIONS.TRADE_ACTION_DEAL;
-                mtOrder.Type_filling = ENUM_ORDER_TYPE_FILLING.ORDER_FILLING_RETURN;
+                request.Action = ENUM_TRADE_REQUEST_ACTIONS.TRADE_ACTION_DEAL;
+                request.Type_filling = ENUM_ORDER_TYPE_FILLING.ORDER_FILLING_RETURN;
 
                 if (order.Side == Side.Buy)
                 {
-                    mtOrder.Type = ENUM_ORDER_TYPE.ORDER_TYPE_BUY;
+                    request.Type = ENUM_ORDER_TYPE.ORDER_TYPE_BUY;
                 }
 
                 if (order.Side == Side.Sell)
                 {
-                    mtOrder.Type = ENUM_ORDER_TYPE.ORDER_TYPE_SELL;
+                    request.Type = ENUM_ORDER_TYPE.ORDER_TYPE_SELL;
                 }
             }
-            _mtapi.OrderSend(mtOrder, out MqlTradeResult orderState);
+            _mtapi.OrderSend(request, out MqlTradeResult orderState);
 
             if (orderState == null)
             {
@@ -642,7 +641,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
             }
 
             order.State = GetRetOrderStateType(orderState.Retcode);
-            order.NumberMarket = orderState.Request_id.ToString();
+            order.NumberMarket = orderState.Request_id.ToString(); // Order id? TODO проверить (нужен ticket)
             order.TimeCallBack = DateTime.UtcNow.AddHours(_timezoneOffset);
             if (orderState.Price != null)
             {
@@ -662,14 +661,18 @@ namespace OsEngine.Market.Servers.MetaTrader5
             MyOrderEvent?.Invoke(order);
         }
 
-
-        public bool CancelOrder(Order order)
-        {
-            return false;
-        }
-
         public OrderStateType GetOrderStatus(Order order)
         {
+            ulong id = _mtapi.OrderGetTicket(Convert.ToInt32(order.NumberMarket));
+            if (!_mtapi.OrderSelect(id)) return OrderStateType.None;
+
+            order.State = GetOrderStateType(_mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_STATE));
+
+            if (order.State == OrderStateType.Done
+                || order.State == OrderStateType.Partial)
+            {
+
+            }
 
             return order.State;
         }
@@ -678,41 +681,140 @@ namespace OsEngine.Market.Servers.MetaTrader5
         {
             long ordersCount = _mtapi.OrdersTotal();
 
-            //List<Order> orders = new List<Order>();
             for (int i = 0; i < ordersCount; i++)
             {
                 Order order = new Order();
                 order.PortfolioNumber = _accountId;
-                //order.NumberMarket = _mtapi.OrderGetTicket(i).ToString();
-                order.NumberMarket = _mtapi.OrderGetString(ENUM_ORDER_PROPERTY_STRING.ORDER_EXTERNAL_ID);
-                long pid = _mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_POSITION_ID);
-                long magic = _mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_MAGIC);
-                order.Price = Convert.ToDecimal(_mtapi.OrderGetDouble(ENUM_ORDER_PROPERTY_DOUBLE.ORDER_PRICE_OPEN));
-                order.Volume = Convert.ToDecimal(_mtapi.OrderGetDouble(ENUM_ORDER_PROPERTY_DOUBLE.ORDER_VOLUME_INITIAL));
-                order.State = GetOrderStateType(_mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_STATE));
-                order.TimeCreate = ConvertToDateTimeFromUnixFromMilliseconds(_mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_TIME_SETUP_MSC));
-                order.TimeCallBack = order.TimeCreate;
-                long orderType = _mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_TYPE);
-                order.TypeOrder = GetOrderPriceType(orderType);
-                order.Side = GetOrderSide(orderType);
-
+                ulong ticket = _mtapi.OrderGetTicket(i);
+                order = GetActiveOrderFromMt(ticket);
+                if (order == null) continue;
                 MyOrderEvent?.Invoke(order);
             }
+        }
 
-
+        public bool CancelOrder(Order order)
+        {
+            Order updatedOrder = CancelOrderFromMt(Convert.ToUInt32(order.NumberMarket));
+            return updatedOrder.State == OrderStateType.Cancel;
         }
 
         public void CancelAllOrders()
         {
-
+            //_mtapi.PositionCloseAll();
+            long ordersCount = _mtapi.OrdersTotal();
+            for (int i = 0; i < ordersCount; i++)
+            {
+                ulong ticket = _mtapi.OrderGetTicket(i);
+                if (!_mtapi.OrderSelect(ticket)) continue;
+                CancelOrderFromMt(ticket);
+            }
         }
 
+        // https://www.mql5.com/ru/articles/211
+        // https://www.mql5.com/ru/docs/constants/tradingconstants/enum_trade_request_actions#trade_action_remove
         public void CancelAllOrdersToSecurity(Security security)
         {
+            long ordersCount = _mtapi.OrdersTotal();
+            for (int i = 0; i < ordersCount; i++)
+            {
+                ulong ticket = _mtapi.OrderGetTicket(i);
+                if (!_mtapi.OrderSelect(ticket)) continue;
+                string nameId = _mtapi.OrderGetString(ENUM_ORDER_PROPERTY_STRING.ORDER_SYMBOL);
+                if (nameId != security.NameId) continue;
+                CancelOrderFromMt(ticket);
+            }
         }
 
+        /// <summary>
+        /// https://www.mql5.com/en/book/automation/experts/experts_modify_order
+        /// </summary>
+        /// <param name="order"></param>
+        /// <param name="newPrice"></param>
+        public void ChangeOrderPrice(Order order, decimal newPrice)
+        {
+            if (order.TypeOrder != OrderPriceType.Limit) return;
+            ulong ticket = Convert.ToUInt32(order.NumberMarket);
+            if (!_mtapi.OrderSelect(ticket)) return;
+            MqlTradeRequest request = new MqlTradeRequest();
+            request.Order = ticket;
+            request.Action = ENUM_TRADE_REQUEST_ACTIONS.TRADE_ACTION_PENDING;
+            request.Price = Convert.ToDouble(newPrice);
+            //if (order.Side == Side.Buy)
+            //{
+            //    request.Type = ENUM_ORDER_TYPE.ORDER_TYPE_BUY_LIMIT;
+            //}
 
-        public void ChangeOrderPrice(Order order, decimal newPrice) { }
+            //if (order.Side == Side.Sell)
+            //{
+            //    request.Type = ENUM_ORDER_TYPE.ORDER_TYPE_SELL_LIMIT;
+            //}
+
+            if (!_mtapi.OrderSend(request, out MqlTradeResult? response))
+            {
+                SendLogMessage(string.Format("Order change price error. Code: {0}.", _mtapi.GetLastError()), LogMessageType.Error);
+                return;
+            }
+            order.Price = newPrice;
+            //order.TimeCallBack = DateTime.Now.AddHours(_timezoneOffset);
+            MyOrderEvent?.Invoke(order);
+        }
+
+        private Order GetActiveOrderFromMt(ulong ticket)
+        {
+            if (!_mtapi.OrderSelect(ticket)) return null;
+            Order order = new Order();
+            order.NumberMarket = ticket.ToString(); // По параметру ticket запрашивается инфо по заявке у платформы mt5
+            order.SecurityNameCode = _mtapi.OrderGetString(ENUM_ORDER_PROPERTY_STRING.ORDER_SYMBOL);
+            //order.NumberMarket = _mtapi.OrderGetString(ENUM_ORDER_PROPERTY_STRING.ORDER_EXTERNAL_ID);
+            long pid = _mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_POSITION_ID);
+            long magic = _mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_MAGIC);
+            order.Price = Convert.ToDecimal(_mtapi.OrderGetDouble(ENUM_ORDER_PROPERTY_DOUBLE.ORDER_PRICE_OPEN));
+            order.Volume = Convert.ToDecimal(_mtapi.OrderGetDouble(ENUM_ORDER_PROPERTY_DOUBLE.ORDER_VOLUME_INITIAL));
+            order.State = GetOrderStateType(_mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_STATE));
+            order.TimeCreate = ConvertToDateTimeFromUnixFromMilliseconds(_mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_TIME_SETUP_MSC));
+            order.TimeCallBack = order.TimeCreate;
+            long orderType = _mtapi.OrderGetInteger(ENUM_ORDER_PROPERTY_INTEGER.ORDER_TYPE);
+            order.TypeOrder = GetOrderPriceType(orderType);
+            order.Side = GetOrderSide(orderType);
+            return order;
+        }
+
+        /// <summary>
+        /// https://www.mql5.com/en/book/automation/experts/experts_remove_order
+        /// </summary>
+        /// <param name="ticket"></param>
+        /// <returns></returns>
+        private Order CancelOrderFromMt(ulong ticket)
+        {
+            if (!_mtapi.OrderSelect(ticket)) return null;
+            MqlTradeRequest request = new MqlTradeRequest();
+            Order order = GetActiveOrderFromMt(ticket);
+            if (order == null) return null;
+            request.Action = ENUM_TRADE_REQUEST_ACTIONS.TRADE_ACTION_REMOVE;
+            request.Order = ticket;
+            if (!_mtapi.OrderSend(request, out MqlTradeResult? response))
+            {
+                SendLogMessage(string.Format("Cancel order error. Code: {0}.", _mtapi.GetLastError()), LogMessageType.Error);
+                return null;
+            }
+            order.State = GetRetOrderStateType(response.Retcode);
+            MyOrderEvent.Invoke(order);
+            return order;
+        }
+
+        //private List<Order> GetAllActiveOrdersFromExchange()
+        //{
+        //    long ordersCount = _mtapi.OrdersTotal();
+        //    for (int i = 0; i < ordersCount; i++)
+        //    {
+        //        ulong ticket = _mtapi.OrderGetTicket(i);
+        //        if (!_mtapi.OrderSelect(ticket)) continue;
+        //        string nameId = _mtapi.OrderGetString(ENUM_ORDER_PROPERTY_STRING.ORDER_SYMBOL);
+        //        if (nameId != security.NameId) continue;
+        //        if (!_mtapi.PositionClose(ticket)) continue;
+        //        order.State = GetOrderStateType(orderCancelResponse.Status);
+        //    }
+        //}
 
         public event Action<Order> MyOrderEvent;
         #endregion
