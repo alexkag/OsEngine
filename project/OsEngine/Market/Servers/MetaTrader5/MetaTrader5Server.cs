@@ -6,7 +6,6 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading;
-using static Google.Rpc.Context.AttributeContext.Types;
 
 namespace OsEngine.Market.Servers.MetaTrader5
 {
@@ -48,12 +47,13 @@ namespace OsEngine.Market.Servers.MetaTrader5
             _securitiesFilter = ((ServerParameterString)ServerParameters[2]).Value;
 
             _mtapi.ConnectionStateChanged += _mtapi_ConnectionStateChanged;
-            _mtapi.QuoteAdded += _mtapi_QuoteAdded;
-            _mtapi.QuoteRemoved += _mtapi_QuoteRemoved;
-            _mtapi.QuoteUpdate += _mtapi_QuoteUpdate;
+            //_mtapi.QuoteAdded += _mtapi_QuoteAdded;
+            //_mtapi.QuoteRemoved += _mtapi_QuoteRemoved;
+            //_mtapi.QuoteUpdate += _mtapi_QuoteUpdate;
             _mtapi.OnLockTicks += NewTradeEventHandler;
             //_mtapi.OnLastTimeBar += NewCandleEventHandler;
-            //_mtapi.OnTradeTransaction += MyTradeEventHandler;
+            _mtapi.OnTradeTransaction += MyTradeEventHandler;
+            _mtapi.OnTradeTransaction += MyOrderEventHandler;
             //_mtapi.QuoteList += MarketDepthEventHandler;
             _mtapi.OnBookEvent += MarketDepthEventHandler;
 
@@ -71,6 +71,109 @@ namespace OsEngine.Market.Servers.MetaTrader5
 
             SendLogMessage("Client connected.", LogMessageType.System);
             SetСonnected();
+        }
+
+        /// <summary>
+        /// https://www.mql5.com/ru/docs/constants/structures/mqltradetransaction
+        /// https://www.mql5.com/ru/docs/event_handlers/ontradetransaction
+        /// Отправка торгового запроса на покупку приводит к цепи торговых транзакций, которые совершаются на торговом счете:
+        /// 1) запрос  принимается на обработку,
+        /// 2) далее для счета создается соответствующий ордер на покупку,
+        /// 3) затем происходит исполнение ордера,
+        /// 4) удаление исполненного ордера из списка действующих,
+        /// 5) добавление в историю ордеров,
+        /// 6) далее добавляется соответствующая сделка в историю и
+        /// 7) создается новая позиция.
+        /// Все эти действия являются торговыми транзакциями.
+        /// Приход каждой такой транзакции в терминал является событием TradeTransaction.
+        /// При этом очередность поступления этих транзакций в терминал не гарантирована,
+        /// поэтому нельзя свой торговый алгоритм строить на ожидании поступления одних торговых транзакций после прихода других.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void MyTradeEventHandler(object sender, Mt5TradeTransactionEventArgs e)
+        {
+            if (!(e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_DEAL_ADD
+                || e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_DEAL_UPDATE
+                || e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_DEAL_DELETE
+                )) return;
+
+            MyTrade trade = new MyTrade();
+            trade.Volume = Convert.ToDecimal(e.Trans.Volume);
+            trade.Price = Convert.ToDecimal(e.Trans.Price);
+            trade.Side = GetSide(e.Trans.OrderType);
+            trade.NumberTrade = e.Trans.Deal.ToString();
+            //trade.NumberOrderParent = e.Trans.Position.ToString();
+            trade.NumberOrderParent = e.Trans.Order.ToString();
+            trade.SecurityNameCode = e.Trans.Symbol;
+            trade.Time = DateTime.UtcNow.AddHours(_timezoneOffset);
+
+            if (trade.Price > 0 && trade.Volume > 0)
+            {
+                MyTradeEvent?.Invoke(trade);
+            }
+        }
+
+        private void MyOrderEventHandler(object sender, Mt5TradeTransactionEventArgs e)
+        {
+            if (!(e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_ORDER_ADD
+                || e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_ORDER_UPDATE
+                || e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_ORDER_DELETE
+                || e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_HISTORY_ADD
+                || e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_HISTORY_UPDATE
+                || e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_HISTORY_DELETE
+                )) return;
+
+
+            Order order = new Order();
+            order.SecurityNameCode = e.Trans.Symbol;
+            //order.NumberUser = e.Trans.
+            order.NumberMarket = e.Trans.Order.ToString();
+            order.Price = Convert.ToDecimal(e.Trans.Price);
+            order.Side = GetSide(e.Trans.OrderType);
+            order.TypeOrder = GetOrderPriceType((long)e.Trans.OrderType);
+            order.State = GetOrderStateType((long)e.Trans.OrderState);
+            order.ServerType = ServerType.MetaTrader5;
+            double volumeTotal = _mtapi.HistoryOrderGetDouble(e.Trans.Order, ENUM_ORDER_PROPERTY_DOUBLE.ORDER_VOLUME_INITIAL);
+            order.Volume = Convert.ToDecimal(volumeTotal);
+            order.VolumeExecute = Convert.ToDecimal(volumeTotal - e.Trans.Volume); // e.Trans.Volume - текущий объем ордера (не исполненный)
+            order.TimeCallBack = DateTime.UtcNow.AddHours(_timezoneOffset);
+            order.TimeCallBack = DateTime.UtcNow.AddHours(_timezoneOffset);
+
+            if (e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_ORDER_ADD)
+            {
+                order.State = OrderStateType.Active;
+            }
+            else if (e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_ORDER_UPDATE)
+            {
+
+            }
+            else if (e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_ORDER_DELETE)
+            {
+
+            }
+            else if (e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_HISTORY_ADD)
+            {
+                order.State = OrderStateType.Done;
+            }
+            else if (e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_HISTORY_UPDATE)
+            {
+
+            }
+            else if (e.Trans.Type == ENUM_TRADE_TRANSACTION_TYPE.TRADE_TRANSACTION_HISTORY_DELETE)
+            {
+
+            }
+
+            //if (order.NumberUser == 0)
+            //{
+            //    return ;
+            //}
+
+            if (order.Price > 0 && order.Volume > 0)
+            {
+                MyOrderEvent?.Invoke(order);
+            }
         }
 
         private void MarketDepthEventHandler(object sender, Mt5BookEventArgs e)
@@ -203,23 +306,23 @@ namespace OsEngine.Market.Servers.MetaTrader5
             }
         }
 
-        void _mtapi_QuoteAdded(object sender, Mt5QuoteEventArgs e)
-        {
-            //Console.WriteLine("Quote added with symbol {0}", e.Quote.Instrument);
-            SendLogMessage("Quote added with symbol " + e.Quote.Instrument, LogMessageType.System);
-        }
+        //void _mtapi_QuoteAdded(object sender, Mt5QuoteEventArgs e)
+        //{
+        //    //Console.WriteLine("Quote added with symbol {0}", e.Quote.Instrument);
+        //    SendLogMessage("Quote added with symbol " + e.Quote.Instrument, LogMessageType.System);
+        //}
 
-        void _mtapi_QuoteRemoved(object sender, Mt5QuoteEventArgs e)
-        {
-            //Console.WriteLine("Quote removed with symbol {0}", e.Quote.Instrument);
-            SendLogMessage("Quote removed with symbol " + e.Quote.Instrument, LogMessageType.System);
-        }
+        //void _mtapi_QuoteRemoved(object sender, Mt5QuoteEventArgs e)
+        //{
+        //    //Console.WriteLine("Quote removed with symbol {0}", e.Quote.Instrument);
+        //    SendLogMessage("Quote removed with symbol " + e.Quote.Instrument, LogMessageType.System);
+        //}
 
-        void _mtapi_QuoteUpdate(object sender, Mt5QuoteEventArgs e)
-        {
-            string msg = string.Format("Quote updated: {0} - {1} : {2}", e.Quote.Instrument, e.Quote.Bid, e.Quote.Ask);
-            SendLogMessage(msg, LogMessageType.System);
-        }
+        //void _mtapi_QuoteUpdate(object sender, Mt5QuoteEventArgs e)
+        //{
+        //    string msg = string.Format("Quote updated: {0} - {1} : {2}", e.Quote.Instrument, e.Quote.Bid, e.Quote.Ask);
+        //    SendLogMessage(msg, LogMessageType.System);
+        //}
 
 
         public void Dispose()
@@ -232,10 +335,13 @@ namespace OsEngine.Market.Servers.MetaTrader5
             _mtapi.BeginDisconnect();
 
             _mtapi.ConnectionStateChanged -= _mtapi_ConnectionStateChanged;
-            _mtapi.QuoteAdded -= _mtapi_QuoteAdded;
-            _mtapi.QuoteRemoved -= _mtapi_QuoteRemoved;
-            _mtapi.QuoteUpdate -= _mtapi_QuoteUpdate;
+            //_mtapi.QuoteAdded -= _mtapi_QuoteAdded;
+            //_mtapi.QuoteRemoved -= _mtapi_QuoteRemoved;
+            //_mtapi.QuoteUpdate -= _mtapi_QuoteUpdate;
             _mtapi.OnLockTicks -= NewTradeEventHandler;
+            _mtapi.OnTradeTransaction -= MyTradeEventHandler;
+            _mtapi.OnTradeTransaction -= MyOrderEventHandler;
+            _mtapi.OnBookEvent -= MarketDepthEventHandler;
 
             if (_mtapi.ConnectionState != Mt5ConnectionState.Disconnected)
             {
@@ -1022,6 +1128,22 @@ namespace OsEngine.Market.Servers.MetaTrader5
                 TimeFrame.Hour4 => ENUM_TIMEFRAMES.PERIOD_H4,
                 TimeFrame.Day => ENUM_TIMEFRAMES.PERIOD_D1,
                 _ => ENUM_TIMEFRAMES.PERIOD_CURRENT
+            };
+        }
+
+        private Side GetSide(ENUM_ORDER_TYPE side)
+        {
+            return side switch
+            {
+                ENUM_ORDER_TYPE.ORDER_TYPE_BUY => Side.Buy,
+                ENUM_ORDER_TYPE.ORDER_TYPE_BUY_LIMIT => Side.Buy,
+                ENUM_ORDER_TYPE.ORDER_TYPE_BUY_STOP => Side.Buy,
+                ENUM_ORDER_TYPE.ORDER_TYPE_BUY_STOP_LIMIT => Side.Buy,
+                ENUM_ORDER_TYPE.ORDER_TYPE_SELL => Side.Sell,
+                ENUM_ORDER_TYPE.ORDER_TYPE_SELL_LIMIT => Side.Sell,
+                ENUM_ORDER_TYPE.ORDER_TYPE_SELL_STOP => Side.Sell,
+                ENUM_ORDER_TYPE.ORDER_TYPE_SELL_STOP_LIMIT => Side.Sell,
+                _ => throw new Exception("Order side is not defined!")
             };
         }
         #endregion
