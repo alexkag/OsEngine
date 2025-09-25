@@ -49,9 +49,10 @@ namespace OsEngine.Market.Servers.MetaTrader5
             _mtapi.ConnectionStateChanged += _mtapi_ConnectionStateChanged;
             //_mtapi.QuoteAdded += _mtapi_QuoteAdded;
             //_mtapi.QuoteRemoved += _mtapi_QuoteRemoved;
-            //_mtapi.QuoteUpdate += _mtapi_QuoteUpdate;
-            _mtapi.OnLockTicks += NewTradeEventHandler;
-            //_mtapi.OnLastTimeBar += NewCandleEventHandler;
+            _mtapi.QuoteUpdate += NewTradeEventHandler;
+            _mtapi.QuoteUpdated += _mtapi_QuoteUpdated;
+            _mtapi.OnLockTicks += _mtapi_OnLockTicks;
+            //_mtapi.    += NewCandleEventHandler;
             _mtapi.OnTradeTransaction += MyTradeEventHandler;
             _mtapi.OnTradeTransaction += MyOrderEventHandler;
             //_mtapi.QuoteList += MarketDepthEventHandler;
@@ -71,6 +72,18 @@ namespace OsEngine.Market.Servers.MetaTrader5
 
             SendLogMessage("Client connected.", LogMessageType.System);
             SetСonnected();
+        }
+
+        private void _mtapi_OnLockTicks(object sender, Mt5LockTicksEventArgs e)
+        {
+            var msg =
+                $"OnLockTicks: Symbol = {e.Symbol}";
+            SendLogMessage(msg, LogMessageType.System);
+        }
+
+        private void _mtapi_QuoteUpdated(object sender, string symbol, double bid, double ask)
+        {
+            SendLogMessage("Quote updated.", LogMessageType.System);
         }
 
         /// <summary>
@@ -181,6 +194,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
             MarketDepth depth = new MarketDepth();
             //Security security = GetSecurity(e.Symbol);
             depth.SecurityNameCode = e.Symbol;
+            depth.Time = DateTime.UtcNow.AddHours(_timezoneOffset);
             //if (security == null) return;
             //depth.SecurityNameCode = security.Name;
             try
@@ -223,32 +237,78 @@ namespace OsEngine.Market.Servers.MetaTrader5
         }
         private DateTime _lastMdTime = DateTime.MinValue;
 
-        private void NewTradeEventHandler(object sender, Mt5LockTicksEventArgs e)
+        //private void NewTradeEventHandler(object sender, Mt5LockTicksEventArgs e)
+        //{
+        //    SendLogMessage($"Tick {e.Symbol}.", LogMessageType.System);
+        //}
+
+        private void NewTradeEventHandler(object sender, Mt5QuoteEventArgs quote)
         {
-            List<MqlTick> ticks = _mtapi.CopyTicks(e.Symbol, CopyTicksFlag.Trade, 0, 1);
-            if (ticks == null || ticks.Count == 0)
+            Mt5Quote mtTrade = quote.Quote;
+
+            bool isSubscribed = false;
+            for (int i = 0; i < _subscribedSecurities.Count; i++)
             {
-                return;
+                if (_subscribedSecurities[i].security.NameId == mtTrade.Instrument)
+                {
+                    isSubscribed = true;
+                    break;
+                }
             }
-
-            MqlTick tick = ticks[ticks.Count - 1];
-
+            if (!isSubscribed) return;
             Trade trade = new Trade();
-            trade.Volume = tick.volume;
+            trade.Volume = mtTrade.Volume;
+            trade.SecurityNameCode = mtTrade.Instrument;
+            trade.Price = Convert.ToDecimal(mtTrade.Last);
             trade.Side = Side.None;
-            if (tick.bid > 0)
+            trade.Time = DateTime.UtcNow.AddHours(_timezoneOffset);
+            trade.Bid = Convert.ToDecimal(mtTrade.Bid);
+            trade.Ask = Convert.ToDecimal(mtTrade.Ask);
+            if (mtTrade.Bid == mtTrade.Last)
             {
                 trade.Side = Side.Sell;
-                trade.Price = Convert.ToDecimal(tick.bid);
+                trade.Price = Convert.ToDecimal(mtTrade.Bid);
             }
-            else if (tick.ask > 0)
+            else if (mtTrade.Ask == mtTrade.Last)
             {
                 trade.Side = Side.Buy;
-                trade.Price = Convert.ToDecimal(tick.ask);
+                trade.Price = Convert.ToDecimal(mtTrade.Ask);
             }
-            //e.Symbol
             NewTradesEvent?.Invoke(trade);
         }
+
+
+        //private void NewTradeEventHandler(object sender, string symbol, double bid, double ask)
+        //{
+        //    List<MqlTick> ticks = _mtapi.CopyTicks(e.Symbol, CopyTicksFlag.Trade, 0, 1);
+        //    if (ticks == null || ticks.Count == 0)
+        //    {
+        //        return;
+        //    }
+
+        //    MqlTick tick = ticks[ticks.Count - 1];
+
+        //Trade trade = new Trade();
+        //    trade.Volume = tick.volume;
+        //    trade.Side = Side.None;
+        //    if (tick.bid > 0)
+        //    {
+        //        trade.Side = Side.Sell;
+        //        trade.Price = Convert.ToDecimal(tick.bid);
+        //    }
+        //    else if (tick.ask > 0)
+        //    {
+        //        trade.Side = Side.Buy;
+        //        trade.Price = Convert.ToDecimal(tick.ask);
+        //    }
+        //    //e.Symbol
+        //    NewTradesEvent?.Invoke(trade);
+        //}
+
+        //private void NewTradeEventHandler(object sender, Mt5LockTicksEventArgs e)
+        //{
+
+        //}
 
         //private void MarketDepthEventHandler(object sender, Mt5QuotesEventArgs e)
         //{
@@ -293,6 +353,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
                 case Mt5ConnectionState.Connected:
                     SendLogMessage("Connected.", LogMessageType.System);
                     _connnectionWaiter.Set();
+                    SetСonnected();
                     break;
                 case Mt5ConnectionState.Disconnected:
                     SendLogMessage("Disconnected.", LogMessageType.System);
@@ -302,6 +363,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
                 case Mt5ConnectionState.Failed:
                     SendLogMessage("Connection failed.", LogMessageType.System);
                     _connnectionWaiter.Set();
+                    SetDisconnected();
                     break;
             }
         }
@@ -332,13 +394,17 @@ namespace OsEngine.Market.Servers.MetaTrader5
                 Unsubscribe(_subscribedSecurities[i].security);
             }
 
+            _subscribedSecurities.Clear();
+
             _mtapi.BeginDisconnect();
+            //_connnectionWaiter.WaitOne();
 
             _mtapi.ConnectionStateChanged -= _mtapi_ConnectionStateChanged;
             //_mtapi.QuoteAdded -= _mtapi_QuoteAdded;
             //_mtapi.QuoteRemoved -= _mtapi_QuoteRemoved;
             //_mtapi.QuoteUpdate -= _mtapi_QuoteUpdate;
-            _mtapi.OnLockTicks -= NewTradeEventHandler;
+            //_mtapi.OnLockTicks -= NewTradeEventHandler;
+            _mtapi.QuoteUpdate -= NewTradeEventHandler;
             _mtapi.OnTradeTransaction -= MyTradeEventHandler;
             _mtapi.OnTradeTransaction -= MyOrderEventHandler;
             _mtapi.OnBookEvent -= MarketDepthEventHandler;
@@ -389,6 +455,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
                 for (int i = 0; i < securitiesCount; i++)
                 {
                     Security security = new Security();
+                    security.Exchange = ServerType.MetaTrader5.ToString();
                     security.NameId = _mtapi.SymbolName(i, false);
                     security.Name = security.NameId;
                     security.NameClass = _mtapi.SymbolInfoString(security.NameId, ENUM_SYMBOL_INFO_STRING.SYMBOL_ISIN);
@@ -408,8 +475,6 @@ namespace OsEngine.Market.Servers.MetaTrader5
                     }
                     //security.Name = "VTBR";
                     security.Lot = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_CONTRACT_SIZE));
-                    security.PriceStep = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
-                    security.PriceStepCost = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
                     security.PriceLimitLow = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_SESSION_PRICE_LIMIT_MIN));
                     security.PriceLimitHigh = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_SESSION_PRICE_LIMIT_MAX));
                     security.VolumeStep = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_VOLUME_STEP));
@@ -426,7 +491,12 @@ namespace OsEngine.Market.Servers.MetaTrader5
                     //    //security.Name = "Other";
                     //}
                     security.NameFull = security.NameId;// + "@" + security.NameClass;
-                    security.Decimals = Convert.ToInt16(_mtapi.SymbolInfoInteger(security.Name, ENUM_SYMBOL_INFO_INTEGER.SYMBOL_DIGITS));
+                    security.PriceStep = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
+                    security.PriceStepCost = security.PriceStep;
+                    //security.PriceStepCost = Convert.ToDecimal(_mtapi.SymbolInfoDouble(security.NameId, ENUM_SYMBOL_INFO_DOUBLE.SYMBOL_TRADE_TICK_SIZE));
+                    //security.Decimals = Convert.ToInt16(_mtapi.SymbolInfoInteger(security.Name, ENUM_SYMBOL_INFO_INTEGER.SYMBOL_DIGITS));
+                    security.Decimals = GetDecimals(security.PriceStep);
+                    security.State = SecurityStateType.Activ;
 
                     // Платформо зависимо
                     if (security.NameClass.ToLower().Contains("stock"))
@@ -492,6 +562,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
             //}
 
             SecurityEvent?.Invoke(_securities);
+            SendLogMessage("Securities list was loaded.", LogMessageType.System);
 
         }
 
@@ -617,19 +688,49 @@ namespace OsEngine.Market.Servers.MetaTrader5
         {
             if (security == null) return;
 
+
+            for (int i = 0; i < _subscribedSecurities.Count; i++)
+            {
+                if (_subscribedSecurities[i].security.NameClass == security.NameClass
+                    && _subscribedSecurities[i].security.Name == security.Name)
+                {
+                    return;
+                }
+            }
+
             try
             {
                 MtSecurity mtSecurity = new MtSecurity();
                 //mtSecurity.NameId = security.NameId;
                 //mtSecurity.NameClass = security.NameClass;
                 mtSecurity.security = security;
+
                 mtSecurity.chartId = _mtapi.ChartOpen(security.NameId, ENUM_TIMEFRAMES.PERIOD_M1);
+
                 //if (_mtapi.MarketBookAdd(security.NameId))
-                if (mtSecurity.chartId > 0)
+                //if (mtSecurity.chartId > 0)
+                //{
+                mtSecurity.isMarketBookAdded = _mtapi.MarketBookAdd(security.NameId);
+                if (!mtSecurity.isMarketBookAdded)
                 {
-                    mtSecurity.isMarketBookAdded = _mtapi.MarketBookAdd(security.NameId);
-                    _subscribedSecurities.Add(mtSecurity);
+                    SendLogMessage($"Security {security.Name} not subscribed. MarketBookAdd failed.", LogMessageType.Error);
+                    return;
                 }
+
+                mtSecurity.isSymbolSelected = _mtapi.SymbolSelect(security.NameId, true);
+                if (!mtSecurity.isSymbolSelected)
+                {
+                    SendLogMessage($"Security {security.Name} not subscribed. Symbol select failed.", LogMessageType.Error);
+                    return;
+                }
+
+                _subscribedSecurities.Add(mtSecurity);
+                //SendLogMessage($"Security {security.Name} succesfully subscribed.", LogMessageType.Error);
+                //}
+                //else
+                //{
+                //    SendLogMessage($"Security not subscribed: {security.Name}.", LogMessageType.Error);
+                //}
             }
             catch (Exception ex)
             {
@@ -656,7 +757,10 @@ namespace OsEngine.Market.Servers.MetaTrader5
                 }
 
                 if (mtSecurity == null) return;
-                _mtapi.ChartClose(mtSecurity.chartId);
+                if (mtSecurity.chartId > 0)
+                {
+                    _mtapi.ChartClose(mtSecurity.chartId);
+                }
                 _mtapi.MarketBookRelease(mtSecurity.security.NameId);
 
             }
@@ -673,7 +777,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
 
         public event Action<News> NewsEvent;
 
-        List<MtSecurity> _subscribedSecurities = new List<MtSecurity>();
+        public List<MtSecurity> _subscribedSecurities = new List<MtSecurity>();
         #endregion
 
         #region 8 Reading messages from data streams
@@ -861,7 +965,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
                 return;
             }
             order.Price = newPrice;
-            //order.TimeCallBack = DateTime.Now.AddHours(_timezoneOffset);
+            //order.TimeCallBack = DateTime.UtcNow.AddHours(_timezoneOffset);
             MyOrderEvent?.Invoke(order);
         }
 
@@ -1146,6 +1250,14 @@ namespace OsEngine.Market.Servers.MetaTrader5
                 _ => throw new Exception("Order side is not defined!")
             };
         }
+
+        private int GetDecimals(decimal x)
+        {
+            var precision = 0;
+            while (x * (decimal)Math.Pow(10, precision) != Math.Round(x * (decimal)Math.Pow(10, precision)))
+                precision++;
+            return precision;
+        }
         #endregion
 
         #region 12 Log
@@ -1168,6 +1280,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
         {
             public long chartId = 0;
             public bool isMarketBookAdded = false;
+            public bool isSymbolSelected = false;
             public Security security = null;
         }
         #endregion
