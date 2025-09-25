@@ -257,6 +257,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
             }
             if (!isSubscribed) return;
             Trade trade = new Trade();
+            trade.Id = mtTrade.Time.Ticks.ToString();
             trade.Volume = mtTrade.Volume;
             trade.SecurityNameCode = mtTrade.Instrument;
             trade.Price = Convert.ToDecimal(mtTrade.Last);
@@ -273,6 +274,11 @@ namespace OsEngine.Market.Servers.MetaTrader5
             {
                 trade.Side = Side.Buy;
                 trade.Price = Convert.ToDecimal(mtTrade.Ask);
+            }
+            if (trade.Side == Side.None)
+            {
+                SendLogMessage($"No trade side {trade.ToString()}.", LogMessageType.System);
+                return;
             }
             NewTradesEvent?.Invoke(trade);
         }
