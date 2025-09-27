@@ -663,19 +663,31 @@ namespace OsEngine.Market.Servers.MetaTrader5
             ENUM_TIMEFRAMES mtTf = GetMtTimeFrame(timeFrameBuilder.TimeFrame);
 
             // Ограничение по глубине истории
-            DateTime now = DateTime.UtcNow.AddHours(_timezoneOffset);
-            int totalCandlesRequested = (int)((endTime - startTime) / timeFrameBuilder.TimeFrameTimeSpan) + 1;
-            int maxHistoryCandles = LIMIT_HISTORY_DEPTH;
+            //DateTime now = DateTime.UtcNow.AddHours(_timezoneOffset);
+            DateTime now;
+            try
+            {
+                _mtapi.CopyRates(security.NameId, mtTf, 0, 1, out MqlRates[]? mtCandle);
+                now = mtCandle[0].time;
+            }
+            catch (Exception)
+            {
+                now = DateTime.UtcNow.AddHours(_timezoneOffset);
+            }
+            //DateTime qStartTime = startTime.Add(timeFrameBuilder.TimeFrameTimeSpan);
+            //DateTime qEndTime = endTime.Add(-timeFrameBuilder.TimeFrameTimeSpan); // перекрытие на 1 свечу
+
+            //int totalCandlesRequested = (int)((qEndTime - qStartTime) / timeFrameBuilder.TimeFrameTimeSpan) + 1;
 
             // Проверка: если запрошено больше, чем доступно по лимиту истории, корректируем startTime
-            int candlesFromNow = (int)((now - startTime) / timeFrameBuilder.TimeFrameTimeSpan);
-            if (candlesFromNow >= maxHistoryCandles)
-            {
-                startTime = now - timeFrameBuilder.TimeFrameTimeSpan * (maxHistoryCandles - 1);
-                if (startTime > endTime)
-                    return candles;
-                totalCandlesRequested = (int)((endTime - startTime) / timeFrameBuilder.TimeFrameTimeSpan) + 1;
-            }
+            //int candlesFromNow = (int)((now - qStartTime) / timeFrameBuilder.TimeFrameTimeSpan);
+            //if (candlesFromNow >= LIMIT_HISTORY_DEPTH)
+            //{
+            //    qStartTime = now - timeFrameBuilder.TimeFrameTimeSpan * (LIMIT_HISTORY_DEPTH - 1);
+            //    if (qStartTime > endTime)
+            //        return candles;
+            //    totalCandlesRequested = (int)((endTime - qStartTime) / timeFrameBuilder.TimeFrameTimeSpan) + 1;
+            //}
 
             // Получаем общее количество свечей в истории инструмента
             int totalHistory = 0;
@@ -685,7 +697,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
             }
             catch (Exception ex)
             {
-                SendLogMessage($"Error while request candles count: {ex.Message}. Security: {security.NameId}.", LogMessageType.Error);
+                SendLogMessage($"Security: {security.NameId}. No candles data: {ex.Message}.", LogMessageType.Error);
                 return candles;
             }
             if (totalHistory <= 0)
@@ -694,41 +706,44 @@ namespace OsEngine.Market.Servers.MetaTrader5
             // Вычисляем позицию первой свечи для запроса
             // В MT5: 0 - самая старая свеча, (totalHistory-1) - самая новая
             // startPos = totalHistory - нужная_свеча_от_конца - 1
-            DateTime firstBarTime = now - timeFrameBuilder.TimeFrameTimeSpan * (totalHistory - 1);
-            if (startTime < firstBarTime)
-                startTime = firstBarTime;
+            //DateTime firstBarTime = now - timeFrameBuilder.TimeFrameTimeSpan * (totalHistory - 1);
+            //if (qStartTime < firstBarTime)
+            //    qStartTime = firstBarTime;
 
-            int startBarIndex = (int)((startTime - firstBarTime) / timeFrameBuilder.TimeFrameTimeSpan);
-            int endBarIndex = (int)((endTime - firstBarTime) / timeFrameBuilder.TimeFrameTimeSpan);
+            //int startBarIndex = (int)((now - qStartTime) / timeFrameBuilder.TimeFrameTimeSpan);
+            int startBarIndex = totalHistory;
+            //int endBarIndex = (int)((now - endTime) / timeFrameBuilder.TimeFrameTimeSpan);
+            int endBarIndex = 0;
 
-            if (startBarIndex < 0) startBarIndex = 0;
-            if (endBarIndex >= totalHistory) endBarIndex = totalHistory - 1;
-            if (startBarIndex > endBarIndex) return candles;
+            //if (endBarIndex < 0) endBarIndex = 0;
+            //if (startBarIndex >= totalHistory) startBarIndex = totalHistory - 1;
+            //if (startBarIndex < endBarIndex) return candles;
 
-            int barsToRequest = endBarIndex - startBarIndex + 1;
-            int batchSize = LIMIT_HISTORY_REQUEST_CANDLES_COUNT;
+            int barsToRequest = startBarIndex - endBarIndex + 1;
 
             int barsLeft = barsToRequest;
-            int currentStart = startBarIndex;
+            int currentStart = endBarIndex;
 
             while (barsLeft > 0)
             {
-                int count = Math.Min(batchSize, barsLeft);
-                int mtStartPos = totalHistory - (currentStart + count); // позиция в MT5 (от самой новой)
-                if (mtStartPos < 0)
-                {
-                    count += mtStartPos; // уменьшаем count, если mtStartPos < 0
-                    mtStartPos = 0;
-                }
+                int count = Math.Min(LIMIT_HISTORY_REQUEST_CANDLES_COUNT, barsLeft);
+                //int mtStartPos = totalHistory - (currentStart + count); // позиция в MT5 (от самой новой)
+                int mtStartPos = currentStart; // позиция в MT5 (от самой новой)
+                //if (mtStartPos + count > totalHistory)
+                //{
+                //    //count = totalHistory - mtStartPos + 1; // уменьшаем count, если mtStartPos < 0
+                //    //mtStartPos = 0;
+                //    break;
+                //}
                 try
                 {
                     _mtapi.CopyRates(security.NameId, mtTf, mtStartPos, count, out MqlRates[]? mtCandles);
                     if (mtCandles == null || mtCandles.Length == 0)
-                        //break;
-                        continue;
+                        break;
+                        //continue;
 
-                    // Добавляем свечи в порядке времени (от старых к новым)
-                    for (int i = 0; i < mtCandles.Length; i++)
+                    // Добавляем свечи
+                    for (int i = mtCandles.Length - 1; i >= 0 ; i--)
                     {
                         DateTime barTime = mtCandles[i].time;
                         if (barTime < startTime || barTime > endTime)
