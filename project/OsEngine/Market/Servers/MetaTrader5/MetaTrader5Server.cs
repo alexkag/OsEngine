@@ -93,7 +93,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
         /// 1) запрос  принимается на обработку,
         /// 2) далее для счета создается соответствующий ордер на покупку,
         /// 3) затем происходит исполнение ордера,
-        /// 4) удаление исполненного ордера из списка действующих,
+        /// 4) удаление исполеннного ордера из списка действующих,
         /// 5) добавление в историю ордеров,
         /// 6) далее добавляется соответствующая сделка в историю и
         /// 7) создается новая позиция.
@@ -653,6 +653,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
         const int LIMIT_HISTORY_REQUEST_CANDLES_COUNT = 10000;
         public List<Candle> GetCandleDataToSecurity(Security security, TimeFrameBuilder timeFrameBuilder, DateTime startTime, DateTime endTime, DateTime actualTime)
         {
+            // Если startTime не совпадает с actualTime, используем actualTime
             if (startTime != actualTime)
             {
                 startTime = actualTime;
@@ -660,124 +661,186 @@ namespace OsEngine.Market.Servers.MetaTrader5
 
             List<Candle> candles = new List<Candle>();
             ENUM_TIMEFRAMES mtTf = GetMtTimeFrame(timeFrameBuilder.TimeFrame);
-            //DateTime last = _mtapi.CopyRates(security.NameId, mtTf, qStartTime, requestCandlesCount, out MqlRates[]? mtCandles);
-            //if ((DateTime.UtcNow.AddHours(_timezoneOffset) - endTime) / timeFrameBuilder.TimeFrameTimeSpan >= LIMIT_HISTORY_DEPTH)
-            //{
-            //    return candles;
-            //}
 
-            DateTime qStartTime = startTime;
-            //DateTime qEndTime;
-            //if ((DateTime.UtcNow.AddHours(_timezoneOffset) - qStartTime) / timeFrameBuilder.TimeFrameTimeSpan >= LIMIT_HISTORY_DEPTH)
-            //{
-            //    qStartTime = DateTime.UtcNow.AddHours(_timezoneOffset) - timeFrameBuilder.TimeFrameTimeSpan * (LIMIT_HISTORY_DEPTH - 1);
-            //}
+            // Ограничение по глубине истории
+            DateTime now = DateTime.UtcNow.AddHours(_timezoneOffset);
+            int totalCandlesRequested = (int)((endTime - startTime) / timeFrameBuilder.TimeFrameTimeSpan) + 1;
+            int maxHistoryCandles = LIMIT_HISTORY_DEPTH;
 
-            //if (qStartTime > endTime) return candles;
-
-            //int candlesTotal = (int)((endTime - qStartTime) / timeFrameBuilder.TimeFrameTimeSpan);
-            DateTime qEndTime = endTime + timeFrameBuilder.TimeFrameTimeSpan * LIMIT_HISTORY_REQUEST_CANDLES_COUNT;
-            while (qStartTime < qEndTime)
-            //while (candlesTotal > 0)
+            // Проверка: если запрошено больше, чем доступно по лимиту истории, корректируем startTime
+            int candlesFromNow = (int)((now - startTime) / timeFrameBuilder.TimeFrameTimeSpan);
+            if (candlesFromNow >= maxHistoryCandles)
             {
-                DateTime qqEndTime = qStartTime + timeFrameBuilder.TimeFrameTimeSpan * LIMIT_HISTORY_REQUEST_CANDLES_COUNT;
-                //int requestCandlesCount = (qqEndTime > endTime) ? (int)((endTime - qStartTime) / timeFrameBuilder.TimeFrameTimeSpan) + 1 : LIMIT_HISTORY_REQUEST_CANDLES_COUNT;
-
-                //if (candlesTotal > LIMIT_HISTORY_REQUEST_CANDLES_COUNT)
-                //{
-                //    requestCandlesCount = LIMIT_HISTORY_REQUEST_CANDLES_COUNT;
-                //}
-                //else
-                //{
-                //    requestCandlesCount = candlesTotal;
-                //}
-
-                try
-                {
-                    MqlRates[]? mtCandles;
-                    if (qqEndTime > endTime)
-                    {
-                        _mtapi.CopyRates(security.NameId, mtTf, 0, LIMIT_HISTORY_REQUEST_CANDLES_COUNT, out mtCandles);
-                    }
-                    else
-                    {
-                        _mtapi.CopyRates(security.NameId, mtTf, qStartTime, LIMIT_HISTORY_REQUEST_CANDLES_COUNT, out mtCandles);
-                    }
-                    if (!(mtCandles == null || mtCandles.Length == 0))
-                    {
-                        for (int i = 0; i < mtCandles.Length; i++)
-                        {
-                            Candle candle = new Candle();
-                            candle.Open = mtCandles[i].open.ToString().ToDecimal();
-                            candle.Close = mtCandles[i].close.ToString().ToDecimal();
-                            candle.High = mtCandles[i].high.ToString().ToDecimal();
-                            candle.Low = mtCandles[i].low.ToString().ToDecimal();
-                            candle.Volume = mtCandles[i].real_volume.ToString().ToDecimal();
-                            candle.TimeStart = mtCandles[i].time;
-                            if (
-                                candle.TimeStart >= startTime
-                                && candle.TimeStart <= endTime
-                                && (candles.Count == 0 || candles[candles.Count - 1].TimeStart < candle.TimeStart)
-                                )
-                            {
-                                candles.Add(candle);
-                            }
-                        }
-                    }
-                }
-                catch (Exception e)
-                {
-                    // Do nothing
-                }
-
-                qStartTime = qStartTime + timeFrameBuilder.TimeFrameTimeSpan * LIMIT_HISTORY_REQUEST_CANDLES_COUNT;
-                //candlesTotal -= requestCandlesCount;
+                startTime = now - timeFrameBuilder.TimeFrameTimeSpan * (maxHistoryCandles - 1);
+                if (startTime > endTime)
+                    return candles;
+                totalCandlesRequested = (int)((endTime - startTime) / timeFrameBuilder.TimeFrameTimeSpan) + 1;
             }
 
-            // Максимум 100 тыс. свечей в ответе. Ограничение платформы.
-            //double countMinutes = (startTime - endTime) / timeFrameBuilder.TimeFrameTimeSpan;
-            //if ((startTime - endTime) / timeFrameBuilder.TimeFrameTimeSpan >= 100000)
-            //{
-            //    endTime = startTime.AddMinutes(-100000 + 1);
-            //}
+            // Получаем общее количество свечей в истории инструмента
+            int totalHistory = 0;
+            try
+            {
+                totalHistory = _mtapi.Bars(security.NameId, mtTf);
+            }
+            catch (Exception ex)
+            {
+                SendLogMessage($"Error while request candles count: {ex.Message}. Security: {security.NameId}.", LogMessageType.Error);
+                return candles;
+            }
+            if (totalHistory <= 0)
+                return candles;
 
-            //try
-            //{
-            //    //_mtapi.CopyRates(security.NameId, mtTf, startTime, endTime, out MqlRates[]? mtCandles);
-            //    //var rates = _mtapi.CopyRates(security.NameId, mtTf, 0, 1000, out MqlRates[]? mtCandles);
-            //    _mtapi.CopyRates(security.NameId, mtTf, qStartTime, candlesCount, out MqlRates[]? mtCandles);
-            //    if (mtCandles == null) return candles;
-            //    for (int i = 0; i < mtCandles.Length; i++)
-            //    {
-            //        Candle candle = new Candle();
-            //        candle.Open = mtCandles[i].open.ToString().ToDecimal();
-            //        candle.Close = mtCandles[i].close.ToString().ToDecimal();
-            //        candle.High = mtCandles[i].high.ToString().ToDecimal();
-            //        candle.Low = mtCandles[i].low.ToString().ToDecimal();
-            //        candle.Volume = mtCandles[i].real_volume.ToString().ToDecimal();
-            //        candle.TimeStart = mtCandles[i].time;
-            //        if (candle.TimeStart >= startTime && candle.TimeStart <= endTime)
-            //        {
-            //            candles.Add(candle);
-            //        }
-            //    }
-            //}
-            //catch (Exception e)
-            //{
-            //    // Do nothing
-            //}
-            //candles = GetCandleHistoryFromServer(startTime, endTime, security, timeFrameBuilder);
+            // Вычисляем позицию первой свечи для запроса
+            // В MT5: 0 - самая старая свеча, (totalHistory-1) - самая новая
+            // startPos = totalHistory - нужная_свеча_от_конца - 1
+            DateTime firstBarTime = now - timeFrameBuilder.TimeFrameTimeSpan * (totalHistory - 1);
+            if (startTime < firstBarTime)
+                startTime = firstBarTime;
 
+            int startBarIndex = (int)((startTime - firstBarTime) / timeFrameBuilder.TimeFrameTimeSpan);
+            int endBarIndex = (int)((endTime - firstBarTime) / timeFrameBuilder.TimeFrameTimeSpan);
 
-            //return candles.Count == 0 ? null : candles;
+            if (startBarIndex < 0) startBarIndex = 0;
+            if (endBarIndex >= totalHistory) endBarIndex = totalHistory - 1;
+            if (startBarIndex > endBarIndex) return candles;
+
+            int barsToRequest = endBarIndex - startBarIndex + 1;
+            int batchSize = LIMIT_HISTORY_REQUEST_CANDLES_COUNT;
+
+            int barsLeft = barsToRequest;
+            int currentStart = startBarIndex;
+
+            while (barsLeft > 0)
+            {
+                int count = Math.Min(batchSize, barsLeft);
+                int mtStartPos = totalHistory - (currentStart + count); // позиция в MT5 (от самой новой)
+                if (mtStartPos < 0)
+                {
+                    count += mtStartPos; // уменьшаем count, если mtStartPos < 0
+                    mtStartPos = 0;
+                }
+                try
+                {
+                    _mtapi.CopyRates(security.NameId, mtTf, mtStartPos, count, out MqlRates[]? mtCandles);
+                    if (mtCandles == null || mtCandles.Length == 0)
+                        //break;
+                        continue;
+
+                    // Добавляем свечи в порядке времени (от старых к новым)
+                    for (int i = 0; i < mtCandles.Length; i++)
+                    {
+                        DateTime barTime = mtCandles[i].time;
+                        if (barTime < startTime || barTime > endTime)
+                            continue;
+
+                        Candle candle = new Candle();
+                        candle.Open = mtCandles[i].open.ToString().ToDecimal();
+                        candle.Close = mtCandles[i].close.ToString().ToDecimal();
+                        candle.High = mtCandles[i].high.ToString().ToDecimal();
+                        candle.Low = mtCandles[i].low.ToString().ToDecimal();
+                        candle.Volume = mtCandles[i].real_volume.ToString().ToDecimal();
+                        candle.TimeStart = barTime;
+
+                        candles.Add(candle);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    SendLogMessage($"Error while request candles history: {ex.Message}. Security: {security.NameId}.", LogMessageType.Error);
+                }
+
+                barsLeft -= count;
+                currentStart += count;
+            }
+
+            // Сортируем по времени на случай, если CopyRates вернул не по порядку
+            candles.Sort((a, b) => a.TimeStart.CompareTo(b.TimeStart));
             return candles;
         }
 
 
         public List<Trade> GetTickDataToSecurity(Security security, DateTime startTime, DateTime endTime, DateTime actualTime)
         {
-            //throw new NotImplementedException();
-            return null;
+            List<Trade> trades = new List<Trade>();
+
+            // Если startTime не совпадает с actualTime, используем actualTime
+            if (startTime != actualTime)
+            {
+                startTime = actualTime;
+            }
+
+            // Ограничение по глубине истории (аналогично свечам)
+            DateTime now = DateTime.UtcNow.AddHours(_timezoneOffset);
+            DateTime minTime = now.AddDays(-30); // MT5 обычно ограничивает историю тиков 1 месяцем, можно скорректировать
+
+            if (startTime < minTime)
+                startTime = minTime;
+            if (startTime > endTime)
+                return trades;
+
+            // MT5 CopyTicks: получаем тики партиями, чтобы не перегружать API
+            const int batchSize = 100000; // MT5 ограничивает размер массива тиков
+            DateTime batchStart = startTime;
+
+            List<MqlTick> ticks = new List<MqlTick>();
+            while (batchStart < endTime)
+            {
+                // Переводим batchStart в миллисекунды с 1970-01-01
+                ulong from = (ulong)(batchStart.ToUniversalTime() - new DateTime(1970, 1, 1)).TotalMilliseconds;
+
+                // Получаем тики начиная с batchStart (from), не более batchSize
+                try
+                {
+                    ticks = _mtapi.CopyTicks(security.NameId, CopyTicksFlag.All, from, (uint)batchSize);
+                    if (ticks == null || ticks.Count == 0)
+                        break;
+
+                    foreach (MqlTick tick in ticks)
+                    {
+                        DateTime tickTime = tick.time;
+                        if (tickTime < startTime || tickTime > endTime)
+                            continue;
+
+                        Trade trade = new Trade();
+                        trade.SecurityNameCode = security.NameId;
+                        trade.Time = tickTime;
+                        trade.Price = Convert.ToDecimal(tick.last);
+                        trade.Volume = tick.volume;
+                        trade.Id = tick.time.Ticks.ToString(); // уникальный ID тика
+                        trade.Bid = Convert.ToDecimal(tick.bid);
+                        trade.Ask = Convert.ToDecimal(tick.ask);
+                        trade.Side = Side.None;
+                        if (tick.bid == tick.last)
+                        {
+                            trade.Side = Side.Sell;
+                            trade.Price = Convert.ToDecimal(tick.bid);
+                            //trade.BidsVolume = tick.volume;
+                        }
+                        else if (tick.ask == tick.last)
+                        {
+                            trade.Side = Side.Buy;
+                            trade.Price = Convert.ToDecimal(tick.ask);
+                            //trade.AsksVolume = tick.volume;
+                        }
+                        trades.Add(trade);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    SendLogMessage($"Error while request ticks history: {ex.Message}. Security: {security.NameId}.", LogMessageType.Error);
+                }
+
+                // Следующая партия
+                if (ticks != null && ticks.Count > 0)
+                    batchStart = ticks[ticks.Count - 1].time.AddMilliseconds(1);
+                else
+                    break;
+            }
+
+            // Сортировка по времени
+            trades.Sort((a, b) => a.Time.CompareTo(b.Time));
+            return trades;
         }
 
         #endregion

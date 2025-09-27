@@ -51,7 +51,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
 
         public bool DataFeedTfTickCanLoad
         {
-            get { return false; }
+            get { return true; }
         }
 
         public bool DataFeedTfMarketDepthCanLoad
