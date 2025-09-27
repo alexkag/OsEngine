@@ -66,7 +66,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
 
         public bool DataFeedTf2MinuteCanLoad
         {
-            get { return false; }
+            get { return true; }
         }
 
         public bool DataFeedTf5MinuteCanLoad
@@ -76,7 +76,7 @@ namespace OsEngine.Market.Servers.MetaTrader5
 
         public bool DataFeedTf10MinuteCanLoad
         {
-            get { return false; }
+            get { return true; }
         }
 
         public bool DataFeedTf15MinuteCanLoad
@@ -153,12 +153,12 @@ namespace OsEngine.Market.Servers.MetaTrader5
                 TimeFrameSec20IsOn = false,
                 TimeFrameSec30IsOn = false,
                 TimeFrameMin1IsOn = true,
-                TimeFrameMin2IsOn = false,
-                TimeFrameMin3IsOn = false,
+                TimeFrameMin2IsOn = true,
+                TimeFrameMin3IsOn = true,
                 TimeFrameMin5IsOn = true,
-                TimeFrameMin10IsOn = false,
+                TimeFrameMin10IsOn = true,
                 TimeFrameMin15IsOn = true,
-                TimeFrameMin20IsOn = false,
+                TimeFrameMin20IsOn = true,
                 TimeFrameMin30IsOn = true,
                 TimeFrameMin45IsOn = false,
                 TimeFrameHour1IsOn = true,
