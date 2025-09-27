@@ -648,6 +648,9 @@ namespace OsEngine.Market.Servers.MetaTrader5
             return candles;
         }
 
+        // Глубина истории также 100 тыс. свечей. Ограничение платформы.
+        const int LIMIT_HISTORY_DEPTH = 100000;
+        const int LIMIT_HISTORY_REQUEST_CANDLES_COUNT = 10000;
         public List<Candle> GetCandleDataToSecurity(Security security, TimeFrameBuilder timeFrameBuilder, DateTime startTime, DateTime endTime, DateTime actualTime)
         {
             if (startTime != actualTime)
@@ -657,29 +660,124 @@ namespace OsEngine.Market.Servers.MetaTrader5
 
             List<Candle> candles = new List<Candle>();
             ENUM_TIMEFRAMES mtTf = GetMtTimeFrame(timeFrameBuilder.TimeFrame);
-            _mtapi.CopyRates(security.NameId, mtTf, startTime, endTime, out MqlRates[]? mtCandles);
-            if (mtCandles == null) return null;
-            for (int i = 0; i < mtCandles.Length; i++)
+            //DateTime last = _mtapi.CopyRates(security.NameId, mtTf, qStartTime, requestCandlesCount, out MqlRates[]? mtCandles);
+            //if ((DateTime.UtcNow.AddHours(_timezoneOffset) - endTime) / timeFrameBuilder.TimeFrameTimeSpan >= LIMIT_HISTORY_DEPTH)
+            //{
+            //    return candles;
+            //}
+
+            DateTime qStartTime = startTime;
+            //DateTime qEndTime;
+            //if ((DateTime.UtcNow.AddHours(_timezoneOffset) - qStartTime) / timeFrameBuilder.TimeFrameTimeSpan >= LIMIT_HISTORY_DEPTH)
+            //{
+            //    qStartTime = DateTime.UtcNow.AddHours(_timezoneOffset) - timeFrameBuilder.TimeFrameTimeSpan * (LIMIT_HISTORY_DEPTH - 1);
+            //}
+
+            //if (qStartTime > endTime) return candles;
+
+            //int candlesTotal = (int)((endTime - qStartTime) / timeFrameBuilder.TimeFrameTimeSpan);
+            DateTime qEndTime = endTime + timeFrameBuilder.TimeFrameTimeSpan * LIMIT_HISTORY_REQUEST_CANDLES_COUNT;
+            while (qStartTime < qEndTime)
+            //while (candlesTotal > 0)
             {
-                Candle candle = new Candle();
-                candle.Open = mtCandles[i].open.ToString().ToDecimal();
-                candle.Close = mtCandles[i].close.ToString().ToDecimal();
-                candle.High = mtCandles[i].high.ToString().ToDecimal();
-                candle.Low = mtCandles[i].low.ToString().ToDecimal();
-                candle.Volume = mtCandles[i].real_volume.ToString().ToDecimal();
-                candle.TimeStart = mtCandles[i].time;
-                if (candle.TimeStart >= startTime && candle.TimeStart <= endTime)
+                DateTime qqEndTime = qStartTime + timeFrameBuilder.TimeFrameTimeSpan * LIMIT_HISTORY_REQUEST_CANDLES_COUNT;
+                //int requestCandlesCount = (qqEndTime > endTime) ? (int)((endTime - qStartTime) / timeFrameBuilder.TimeFrameTimeSpan) + 1 : LIMIT_HISTORY_REQUEST_CANDLES_COUNT;
+
+                //if (candlesTotal > LIMIT_HISTORY_REQUEST_CANDLES_COUNT)
+                //{
+                //    requestCandlesCount = LIMIT_HISTORY_REQUEST_CANDLES_COUNT;
+                //}
+                //else
+                //{
+                //    requestCandlesCount = candlesTotal;
+                //}
+
+                try
                 {
-                    candles.Add(candle);
+                    MqlRates[]? mtCandles;
+                    if (qqEndTime > endTime)
+                    {
+                        _mtapi.CopyRates(security.NameId, mtTf, 0, LIMIT_HISTORY_REQUEST_CANDLES_COUNT, out mtCandles);
+                    }
+                    else
+                    {
+                        _mtapi.CopyRates(security.NameId, mtTf, qStartTime, LIMIT_HISTORY_REQUEST_CANDLES_COUNT, out mtCandles);
+                    }
+                    if (!(mtCandles == null || mtCandles.Length == 0))
+                    {
+                        for (int i = 0; i < mtCandles.Length; i++)
+                        {
+                            Candle candle = new Candle();
+                            candle.Open = mtCandles[i].open.ToString().ToDecimal();
+                            candle.Close = mtCandles[i].close.ToString().ToDecimal();
+                            candle.High = mtCandles[i].high.ToString().ToDecimal();
+                            candle.Low = mtCandles[i].low.ToString().ToDecimal();
+                            candle.Volume = mtCandles[i].real_volume.ToString().ToDecimal();
+                            candle.TimeStart = mtCandles[i].time;
+                            if (
+                                candle.TimeStart >= startTime
+                                && candle.TimeStart <= endTime
+                                && (candles.Count == 0 || candles[candles.Count - 1].TimeStart < candle.TimeStart)
+                                )
+                            {
+                                candles.Add(candle);
+                            }
+                        }
+                    }
                 }
+                catch (Exception e)
+                {
+                    // Do nothing
+                }
+
+                qStartTime = qStartTime + timeFrameBuilder.TimeFrameTimeSpan * LIMIT_HISTORY_REQUEST_CANDLES_COUNT;
+                //candlesTotal -= requestCandlesCount;
             }
 
-            return candles.Count == 0 ? null : candles;
+            // Максимум 100 тыс. свечей в ответе. Ограничение платформы.
+            //double countMinutes = (startTime - endTime) / timeFrameBuilder.TimeFrameTimeSpan;
+            //if ((startTime - endTime) / timeFrameBuilder.TimeFrameTimeSpan >= 100000)
+            //{
+            //    endTime = startTime.AddMinutes(-100000 + 1);
+            //}
+
+            //try
+            //{
+            //    //_mtapi.CopyRates(security.NameId, mtTf, startTime, endTime, out MqlRates[]? mtCandles);
+            //    //var rates = _mtapi.CopyRates(security.NameId, mtTf, 0, 1000, out MqlRates[]? mtCandles);
+            //    _mtapi.CopyRates(security.NameId, mtTf, qStartTime, candlesCount, out MqlRates[]? mtCandles);
+            //    if (mtCandles == null) return candles;
+            //    for (int i = 0; i < mtCandles.Length; i++)
+            //    {
+            //        Candle candle = new Candle();
+            //        candle.Open = mtCandles[i].open.ToString().ToDecimal();
+            //        candle.Close = mtCandles[i].close.ToString().ToDecimal();
+            //        candle.High = mtCandles[i].high.ToString().ToDecimal();
+            //        candle.Low = mtCandles[i].low.ToString().ToDecimal();
+            //        candle.Volume = mtCandles[i].real_volume.ToString().ToDecimal();
+            //        candle.TimeStart = mtCandles[i].time;
+            //        if (candle.TimeStart >= startTime && candle.TimeStart <= endTime)
+            //        {
+            //            candles.Add(candle);
+            //        }
+            //    }
+            //}
+            //catch (Exception e)
+            //{
+            //    // Do nothing
+            //}
+            //candles = GetCandleHistoryFromServer(startTime, endTime, security, timeFrameBuilder);
+
+
+            //return candles.Count == 0 ? null : candles;
+            return candles;
         }
+
 
         public List<Trade> GetTickDataToSecurity(Security security, DateTime startTime, DateTime endTime, DateTime actualTime)
         {
-            throw new NotImplementedException();
+            //throw new NotImplementedException();
+            return null;
         }
 
         #endregion
