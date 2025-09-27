@@ -72,6 +72,7 @@ using OsEngine.Market.Servers.TelegramNews;
 using OsEngine.Market.Servers.Bitfinex.BitfinexFutures;
 using OsEngine.Market.Servers.FinamGrpc;
 using OsEngine.Market.Servers.BinanceData;
+using OsEngine.Market.Servers.MetaTrader5;
 using OsEngine.Market.AutoFollow;
 using OsEngine.OsTrader.Panels;
 using OsEngine.OsTrader;
@@ -322,6 +323,7 @@ namespace OsEngine.Market
                 serverTypes.Add(ServerType.TelegramNews);
                 serverTypes.Add(ServerType.BinanceData);
                 serverTypes.Add(ServerType. AscendexSpot);
+                serverTypes.Add(ServerType.MetaTrader5);
 
                 // а теперь сортируем в зависимости от предпочтений пользователя
 
@@ -450,6 +452,7 @@ namespace OsEngine.Market
                 serverTypes.Add(ServerType.AscendexSpot);
                 serverTypes.Add(ServerType.OKXData);
                 serverTypes.Add(ServerType.BybitData);
+                serverTypes.Add(ServerType.MetaTrader5);
 
                 return serverTypes;
             }
@@ -821,6 +824,10 @@ namespace OsEngine.Market
                     else if (type == ServerType.AscendexSpot)
                     {
                         newServer = new AscendexSpotServer(uniqueNum);
+                    }
+                    else if (type == ServerType.MetaTrader5)
+                    {
+                        newServer = new MetaTrader5Server(uniqueNum);
                     }
 
                     if (newServer == null)
@@ -1608,6 +1615,10 @@ namespace OsEngine.Market
                 else if (type == ServerType.BybitData)
                 {
                     serverPermission = new BybitDataServerPermission();
+                }
+                else if (type == ServerType.MetaTrader5)
+                {
+                    serverPermission = new MetaTrader5ServerPermission();
                 }
 
                 if (serverPermission != null)
@@ -2704,6 +2715,12 @@ namespace OsEngine.Market
         /// downloading historical data from exchange Bybit
         /// скачивание исторических данных с биржи Bybit
         /// </summary>
-        BybitData
+        BybitData,
+
+        /// <summary>
+        /// MetaTrader5 Adapter
+        /// Адаптер к МетаТрейдер5
+        /// </summary>
+        MetaTrader5
     }
 }
