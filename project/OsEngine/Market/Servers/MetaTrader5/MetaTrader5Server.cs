@@ -648,8 +648,11 @@ namespace OsEngine.Market.Servers.MetaTrader5
             return candles;
         }
 
-        // Глубина истории также 100 тыс. свечей. Ограничение платформы.
-        const int LIMIT_HISTORY_DEPTH = 100000;
+        /// <summary>
+        /// Метод int CopyRates(string symbolName, ENUM_TIMEFRAMES timeframe, DateTime startTime, DateTime stopTime, out MqlRates[]? ratesArray)
+        /// выдает некорректный результат, ошибается по краям диапазона непредсказуемо.
+        /// Поэтому используем CopyRates с позициями, а не временем.
+        /// </summary>
         const int LIMIT_HISTORY_REQUEST_CANDLES_COUNT = 10000;
         public List<Candle> GetCandleDataToSecurity(Security security, TimeFrameBuilder timeFrameBuilder, DateTime startTime, DateTime endTime, DateTime actualTime)
         {
