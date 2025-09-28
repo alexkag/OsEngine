@@ -55,7 +55,6 @@ namespace OsEngine.Market.Servers.AE
         {
             try
             {
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
                 _securities.Clear();
                 _myPortfolios.Clear();
                 _subscribedSecurities.Clear();
@@ -93,7 +92,7 @@ namespace OsEngine.Market.Servers.AE
             }
             catch (Exception ex)
             {
-                SendLogMessage(ex.Message.ToString(), LogMessageType.Error);
+                SendLogMessage($"AExchangeServer.Connect: {ex}", LogMessageType.Error);
             }
         }
 
@@ -276,6 +275,11 @@ namespace OsEngine.Market.Servers.AE
                 {
                     order.State = OrderStateType.Done;
                 }
+            }
+
+            if (externalId == null) // this order was sent not via our terminal
+            {
+                return;
             }
 
             if (!_orderNumbers.ContainsKey(externalId)) // this order was sent not via our terminal
@@ -686,13 +690,13 @@ namespace OsEngine.Market.Servers.AE
                     }
                     catch (Exception ex)
                     {
-                        SendLogMessage(ex.ToString(), LogMessageType.Error);
+                        SendLogMessage($"AExchangeServer.CreateWebSocketConnection: WebSocket connection failed: {ex}", LogMessageType.Error);
                     }
                 }
             }
             catch (Exception exception)
             {
-                SendLogMessage(exception.ToString(), LogMessageType.Error);
+                SendLogMessage($"AExchangeServer.CreateWebSocketConnection: {exception}", LogMessageType.Error);
             }
         }
 
@@ -728,7 +732,7 @@ namespace OsEngine.Market.Servers.AE
             }
             catch (Exception ex)
             {
-                SendLogMessage("Error during WebSocket deletion: " + ex, LogMessageType.Error);
+                SendLogMessage($"AExchangeServer.DeleteWebSocketConnection: {ex}", LogMessageType.Error);
             }
         }
 
@@ -757,7 +761,7 @@ namespace OsEngine.Market.Servers.AE
             }
             catch (Exception ex)
             {
-                SendLogMessage(ex.ToString(), LogMessageType.Error);
+                SendLogMessage($"AExchangeServer.CheckActivationSockets: {ex}", LogMessageType.Error);
             }
         }
 
@@ -791,12 +795,20 @@ namespace OsEngine.Market.Servers.AE
 
         private void LoginTimerElapsed(object state)
         {
-            SendLogMessage("Login response timed out. Reconnecting.", LogMessageType.Error);
+            SendLogMessage("AExchangeServer.LoginTimerElapsed: Login response timed out. Reconnecting.", LogMessageType.Error);
             Reconnect();
         }
 
         private void WebSocketData_Closed(object sender, CloseEventArgs e)
         {
+            //TlsHandshakeFailure
+            if (e.Code == "1015")
+            {
+                SendLogMessage($"Connection to AE closed unexpectedly Close code = {e.Code} with reason = {e.Reason}. Attempting reconnect.", LogMessageType.System);
+                _ws.ConnectAsync();
+                return;
+            }
+
             SendLogMessage($"Connection to AE closed. Code: {e.Code}, Reason: {e.Reason}", LogMessageType.System);
             ServerStatus = ServerConnectStatus.Disconnect;
             DisconnectEvent?.Invoke();
@@ -807,7 +819,10 @@ namespace OsEngine.Market.Servers.AE
         {
             if (error.Exception != null)
             {
-                SendLogMessage(error.Exception.ToString(), LogMessageType.Error);
+                if (error.Exception.ToString().Contains("501"))
+                        SendLogMessage($"AExchangeServer.WebSocketData_Error (are you trying to connect many times using same certificate?): {error.Exception}", LogMessageType.Error);
+                    else
+                        SendLogMessage($"AExchangeServer.WebSocketData_Error: {error.Exception}", LogMessageType.Error);
             }
             ServerStatus = ServerConnectStatus.Disconnect;
             DisconnectEvent?.Invoke();
@@ -847,7 +862,7 @@ namespace OsEngine.Market.Servers.AE
             }
             catch (Exception error)
             {
-                SendLogMessage("AE websocket error. " + error.ToString(), LogMessageType.Error);
+                SendLogMessage($"AExchangeServer.WebSocketData_MessageReceived: {error}", LogMessageType.Error);
             }
         }
 
@@ -882,7 +897,7 @@ namespace OsEngine.Market.Servers.AE
             }
             catch (Exception exception)
             {
-                SendLogMessage(exception.ToString(),LogMessageType.Error);
+                SendLogMessage($"AExchangeServer.Subscribe: {exception}", LogMessageType.Error);
             }
         }
 
@@ -973,7 +988,7 @@ namespace OsEngine.Market.Servers.AE
                 }
                 catch (Exception exception)
                 {
-                    SendLogMessage(exception.ToString(), LogMessageType.Error);
+                    SendLogMessage($"AExchangeServer.DataMessageReader: {exception}", LogMessageType.Error);
                     Thread.Sleep(5000);
                 }
             }
@@ -1028,7 +1043,7 @@ namespace OsEngine.Market.Servers.AE
             }
             catch (Exception exception)
             {
-                SendLogMessage("Order sending error " + exception.ToString(), LogMessageType.Error);
+                SendLogMessage($"AExchangeServer.SendOrder: {exception}", LogMessageType.Error);
             }
         }
 
@@ -1056,7 +1071,7 @@ namespace OsEngine.Market.Servers.AE
             }
             catch (Exception exception)
             {
-                SendLogMessage("Order cancel request error " + exception.ToString(), LogMessageType.Error);
+                SendLogMessage($"AExchangeServer.CancelOrder: {exception}", LogMessageType.Error);
             }
             return true;
         }
@@ -1087,7 +1102,7 @@ namespace OsEngine.Market.Servers.AE
             }
             catch (Exception exception)
             {
-                SendLogMessage("Order cancel request error " + exception.ToString(), LogMessageType.Error);
+                SendLogMessage($"AExchangeServer.CancelAllOrders: {exception}", LogMessageType.Error);
             }
         }
 
@@ -1108,7 +1123,7 @@ namespace OsEngine.Market.Servers.AE
             }
             catch (Exception exception)
             {
-                SendLogMessage("Order cancel request error " + exception.ToString(), LogMessageType.Error);
+                SendLogMessage($"AExchangeServer.CancelAllOrdersToSecurity: {exception}", LogMessageType.Error);
             }
         }
 
@@ -1144,27 +1159,47 @@ namespace OsEngine.Market.Servers.AE
             X509Certificate2 certificate;
 
             var certStart = pemContent.IndexOf("-----BEGIN CERTIFICATE-----");
-            var certEnd = pemContent.IndexOf("-----END CERTIFICATE-----") + "-----END CERTIFICATE-----".Length;
+            if (certStart == -1)
+            {
+                throw new InvalidOperationException("Could not find a certificate in the PEM file.");
+            }
+            var certEnd = pemContent.IndexOf("-----END CERTIFICATE-----", certStart) + "-----END CERTIFICATE-----".Length;
             var certPem = pemContent.Substring(certStart, certEnd - certStart);
 
-            if (pemContent.Contains("-----BEGIN ENCRYPTED PRIVATE KEY-----"))
-            {
-                var keyStart = pemContent.IndexOf("-----BEGIN ENCRYPTED PRIVATE KEY-----");
-                var keyEnd = pemContent.IndexOf("-----END ENCRYPTED PRIVATE KEY-----") + "-----END ENCRYPTED PRIVATE KEY-----".Length;
-                var keyPem = pemContent.Substring(keyStart, keyEnd - keyStart);
+            string keyPem = null;
+            string[] allKeyLabels = { "ENCRYPTED PRIVATE KEY", "RSA PRIVATE KEY", "PRIVATE KEY", "EC PRIVATE KEY" };
 
+            foreach (var label in allKeyLabels)
+            {
+                var beginLabel = $"-----BEGIN {label}-----";
+                var keyStart = pemContent.IndexOf(beginLabel);
+                if (keyStart != -1)
+                {
+                    var endLabel = $"-----END {label}-----";
+                    var keyEnd = pemContent.IndexOf(endLabel, keyStart) + endLabel.Length;
+                    keyPem = pemContent.Substring(keyStart, keyEnd - keyStart);
+                    break;
+                }
+            }
+
+            if (keyPem == null)
+            {
+                throw new InvalidOperationException("Could not find a private key in the PEM file.");
+            }
+
+            if (pemContent.Contains("Proc-Type: 4,ENCRYPTED") || keyPem.Contains("-----BEGIN ENCRYPTED PRIVATE KEY-----"))
+            {
                 certificate = X509Certificate2.CreateFromEncryptedPem(certPem, keyPem, pemPassphrase);
             }
             else
             {
-                var keyStart = pemContent.IndexOf("-----BEGIN PRIVATE KEY-----");
-                var keyEnd = pemContent.IndexOf("-----END PRIVATE KEY-----") + "-----END PRIVATE KEY-----".Length;
-                var keyPem = pemContent.Substring(keyStart, keyEnd - keyStart);
-
                 certificate = X509Certificate2.CreateFromPem(certPem, keyPem);
             }
 
-            var pfxBytes = certificate.Export(X509ContentType.Pfx, pemPassphrase);
+            // Re-load the certificate with appropriate key storage flags using the project's custom helper.
+            // This is crucial for ensuring the key is accessible by the application.
+            // A null/empty password for export is handled to support unencrypted keys.
+            var pfxBytes = certificate.Export(X509ContentType.Pfx, string.IsNullOrEmpty(pemPassphrase) ? null : pemPassphrase);
             return X509CertificateLoader.LoadPkcs12(pfxBytes, pemPassphrase, X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable);
         }
 
